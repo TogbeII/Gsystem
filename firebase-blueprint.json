@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "License": {
+      "title": "License",
+      "description": "License activation details for the system",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "type": { "type": "string" },
+        "activatedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["key", "type", "activatedAt", "expiresAt"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Global general configuration files of the system",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" }
+      },
+      "required": ["businessName"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User account registration with role permissions",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "manager", "user"] },
+        "permissions": { "type": "object" }
+      },
+      "required": ["username", "password", "role", "fullName", "permissions"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product item details with stocks in warehouse & shop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "sku": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "bulkUnitSize": { "type": "number" },
+        "bulkUnitName": { "type": "string" },
+        "shopStock": { "type": "number" },
+        "warehouseStock": { "type": "number" },
+        "warehouseLooseStock": { "type": "number" },
+        "hasShopInventory": { "type": "boolean" },
+        "hasWarehouseInventory": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer registered info and debts credit balance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "balance": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Invoiced sales transactions and totals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "items": { "type": "array" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "total": { "type": "number" },
+        "discount": { "type": "number" },
+        "paymentType": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "returnedAmount": { "type": "number" }
+      },
+      "required": ["id", "items", "total", "paymentType", "amountPaid", "date"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Manual or automated payments from clients for sales",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "saleId": { "type": "string" }
+      },
+      "required": ["id", "customerId", "amount", "type", "date"]
+    },
+    "Return": {
+      "title": "Return",
+      "description": "Logged product returns details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "saleId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paymentType": { "type": "string" }
+      },
+      "required": ["id", "saleId", "date", "items", "totalAmount"]
+    }
+  },
+  "firestore": {
+    "settings/license": {
+      "schema": "License",
+      "description": "System license key document"
+    },
+    "settings/config": {
+      "schema": "Config",
+      "description": "System config doc for general features"
+    },
+    "users/{username}": {
+      "schema": "User",
+      "description": "Collection of system user credentials and privileges mapping"
+    },
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of physical and digital products in inventories"
+    },
+    "customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customers contact info and debt metrics"
+    },
+    "sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Logged historic items and payment totals of sales"
+    },
+    "payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Logged historic manual or automations of sales transactions"
+    },
+    "returns/{returnId}": {
+      "schema": "Return",
+      "description": "Logged historic details of item standard return files"
+    }
+  }
+}

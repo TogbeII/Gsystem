@@ -1,0 +1,8 @@
+{
+  "name": "Genesys Sales/Inventory System",
+  "description": "A comprehensive sales and inventory management system for safety tools and PPEs, featuring offline support, credit tracking, and license key validation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global safety catch-all: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable utility functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Settings Collection Rule matching settings/license and settings/config
+    match /settings/{docName} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Users Collection Rule
+    match /users/{username} {
+      allow read, write: if isSignedIn() && isValidId(username);
+    }
+
+    // Products Collection Rule
+    match /products/{productId} {
+      allow read, write: if isSignedIn() && isValidId(productId);
+    }
+
+    // Customers Collection Rule
+    match /customers/{customerId} {
+      allow read, write: if isSignedIn() && isValidId(customerId);
+    }
+
+    // Sales Collection Rule
+    match /sales/{saleId} {
+      allow read, write: if isSignedIn() && isValidId(saleId);
+    }
+
+    // Payments Collection Rule
+    match /payments/{paymentId} {
+      allow read, write: if isSignedIn() && isValidId(paymentId);
+    }
+
+    // Returns Collection Rule
+    match /returns/{returnId} {
+      allow read, write: if isSignedIn() && isValidId(returnId);
+    }
+  }
+}
