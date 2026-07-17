@@ -134,11 +134,17 @@ function saveLocalDb() {
 
 // Unified data helper managers (Firestore / Local fallback with Multi-Tenant Separation)
 const LOCAL_LICENSE_FILE = path.join(process.cwd(), "local-license.json");
+let cachedLicense: any = null;
 
 function getLocalLicense() {
+  if (cachedLicense) {
+    return cachedLicense;
+  }
   if (fs.existsSync(LOCAL_LICENSE_FILE)) {
     try {
-      return JSON.parse(fs.readFileSync(LOCAL_LICENSE_FILE, "utf-8"));
+      const lic = JSON.parse(fs.readFileSync(LOCAL_LICENSE_FILE, "utf-8"));
+      cachedLicense = lic;
+      return lic;
     } catch (e) {
       console.error("Error reading local-license.json", e);
     }
@@ -146,12 +152,14 @@ function getLocalLicense() {
   // Fallback to local memory if offline
   if (!useFirestore) {
     const local = loadLocalDb();
-    return local.license || null;
+    cachedLicense = local.license || null;
+    return cachedLicense;
   }
   return null;
 }
 
 function saveLocalLicense(license: any) {
+  cachedLicense = license;
   try {
     fs.writeFileSync(LOCAL_LICENSE_FILE, JSON.stringify(license, null, 2), "utf-8");
   } catch (e) {
@@ -263,8 +271,9 @@ async function getCollectionData(collectionName: string): Promise<any[]> {
 }
 
 async function setDocumentData(collectionName: string, docId: string, data: any): Promise<void> {
+  const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
   const isGlobalOwnerDoc = collectionName === "users" && docId === "genesys_owner";
-  const finalCollection = isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName);
+  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
   if (useFirestore && db) {
     try {
       const docRef = db.collection(finalCollection).doc(docId);
@@ -298,8 +307,9 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
 }
 
 async function deleteDocumentData(collectionName: string, docId: string): Promise<void> {
+  const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
   const isGlobalOwnerDoc = collectionName === "users" && docId === "genesys_owner";
-  const finalCollection = isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName);
+  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
   if (useFirestore && db) {
     try {
       const docRef = db.collection(finalCollection).doc(docId);
@@ -329,8 +339,9 @@ async function deleteDocumentData(collectionName: string, docId: string): Promis
 }
 
 async function getDocumentData(collectionName: string, docId: string): Promise<any | null> {
+  const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
   const isGlobalOwnerDoc = collectionName === "users" && docId === "genesys_owner";
-  const finalCollection = isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName);
+  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
   if (useFirestore && db) {
     try {
       const docRef = db.collection(finalCollection).doc(docId);
@@ -499,8 +510,26 @@ async function migrateJsonToFirestore() {
   }
 }
 
+async function loadLicenseFromFirestore() {
+  if (!useFirestore || !db) return;
+  try {
+    const docRef = db.collection("settings").doc("license");
+    const snapshot = await docRef.get();
+    if (snapshot.exists) {
+      const lic = snapshot.data();
+      if (lic && lic.key) {
+        console.log(`[License] Loaded active license from Firestore on startup: ${lic.key}`);
+        saveLocalLicense(lic);
+      }
+    }
+  } catch (err: any) {
+    console.error(`[License] Error loading license from Firestore:`, err.message);
+  }
+}
+
 // Run initial migration and seeding on server startup
 (async () => {
+  await loadLicenseFromFirestore();
   await attemptSelfHealFromRegistry();
   await migrateJsonToFirestore();
   await initializeDatabase();
@@ -526,6 +555,7 @@ function verifyLicense(key: string) {
     "6MONTH": 180,
     "1YEAR": 365,
     "2YEAR": 730,
+    NEVER: 999999,
   };
   
   return { type, days: daysMap[type] };
@@ -582,18 +612,21 @@ app.post("/api/license/activate", async (req, res) => {
   }
 
   const existingLicense = getLocalLicense();
-  if (existingLicense) {
+  if (existingLicense && existingLicense.key === key) {
     return res.status(400).json({ error: "System already activated" });
   }
 
-  const expiryDate = new Date();
-  expiryDate.setDate(expiryDate.getDate() + verified.days);
+  const expiryDate = verified.type === "NEVER" ? null : (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + (verified.days || 0));
+    return d;
+  })();
 
   const license = {
     key,
     type: verified.type,
     activatedAt: new Date().toISOString(),
-    expiresAt: expiryDate.toISOString(),
+    expiresAt: expiryDate ? expiryDate.toISOString() : null,
   };
   saveLocalLicense(license);
   await setDocumentData("settings", "license", license);
@@ -605,11 +638,39 @@ app.post("/api/license/activate", async (req, res) => {
 });
 
 app.get("/api/license/status", async (req, res) => {
-  const license = getLocalLicense();
+  const requestingUser = req.headers["x-user"] || tenantStorage.getStore()?.username;
+  if (requestingUser === "genesys_owner") {
+    return res.json({
+      activated: true,
+      license: {
+        key: "GENESYS-NEVER-A1B2C3D4-A20572B1",
+        type: "NEVER",
+        activatedAt: "2026-07-16T21:35:10.718Z",
+        expiresAt: null
+      },
+      isExpired: false
+    });
+  }
+
+  let license = getLocalLicense();
+  if (!license && useFirestore && db) {
+    try {
+      const docRef = db.collection("settings").doc("license");
+      const snapshot = await docRef.get();
+      if (snapshot.exists) {
+        license = snapshot.data();
+        if (license && license.key) {
+          saveLocalLicense(license);
+        }
+      }
+    } catch (e: any) {
+      console.error("Error retrieving license from Firestore in status endpoint:", e.message);
+    }
+  }
   if (!license) {
     return res.json({ activated: false });
   }
-  const isExpired = new Date() > new Date(license.expiresAt);
+  const isExpired = license.expiresAt ? (new Date() > new Date(license.expiresAt)) : false;
   
   // Background reporting ping to keep central server updated
   pingCentralLicenseServer().catch(() => {});
@@ -677,6 +738,32 @@ app.post("/api/login", async (req, res) => {
   const inputHashed = isHashed(password) ? password : hashPassword(password);
   if (user.password !== inputHashed) {
     return res.status(401).json({ error: "Incorrect password. Please verify your password and try again." });
+  }
+
+  // License check for non-owner users to prevent bypass
+  if (username !== "genesys_owner") {
+    let license = getLocalLicense();
+    if (!license && useFirestore && db) {
+      try {
+        const docRef = db.collection("settings").doc("license");
+        const snapshot = await docRef.get();
+        if (snapshot.exists) {
+          license = snapshot.data();
+          if (license && license.key) {
+            saveLocalLicense(license);
+          }
+        }
+      } catch (e: any) {
+        console.error("Error retrieving license from Firestore in login endpoint:", e.message);
+      }
+    }
+    if (!license) {
+      return res.status(403).json({ error: "System is not activated. Please activate your license to continue." });
+    }
+    const isExpired = license.expiresAt ? (new Date() > new Date(license.expiresAt)) : false;
+    if (isExpired) {
+      return res.status(403).json({ error: "Your license has expired. Please renew your license to continue." });
+    }
   }
 
   const role: "admin" | "manager" | "user" = user.role || "user";
@@ -836,12 +923,13 @@ app.post("/api/inventory/transfer", async (req, res) => {
     return res.status(400).json({ error: "Insufficient warehouse stock" });
   }
 
-  // Find a matching product in the Shop inventory
+  // Find a matching product in the Shop inventory (excluding itself)
   const skuMatch = p.sku ? p.sku.trim().toLowerCase() : null;
   const nameMatch = p.name ? p.name.trim().toLowerCase() : null;
 
   const allProducts = await getCollectionData("products");
   const matchingShopProduct = allProducts.find((prod: any) => {
+    if (prod.id === p.id) return false;
     if (!prod.hasShopInventory) return false;
     if (skuMatch && prod.sku && prod.sku.trim().toLowerCase() === skuMatch) {
       return true;
@@ -857,13 +945,18 @@ app.post("/api/inventory/transfer", async (req, res) => {
   p.warehouseStock = Math.floor(remainingSingles / bulkSize);
   p.warehouseLooseStock = remainingSingles % bulkSize;
 
-  // Save updated original product
-  await setDocumentData("products", p.id, p);
-
-  if (matchingShopProduct) {
+  // If the product itself has shop inventory, we transfer directly to its own shop stock
+  if (p.hasShopInventory) {
+    p.shopStock = (p.shopStock || 0) + transferQuantity;
+    await setDocumentData("products", p.id, p);
+  } else if (matchingShopProduct) {
+    // Save updated original product (warehouse) and the matching shop product
+    await setDocumentData("products", p.id, p);
     matchingShopProduct.shopStock = (matchingShopProduct.shopStock || 0) + transferQuantity;
     await setDocumentData("products", matchingShopProduct.id, matchingShopProduct);
   } else {
+    // Save updated original product and create a separate new shop product
+    await setDocumentData("products", p.id, p);
     const newShopProduct = {
       id: crypto.randomUUID(),
       name: p.name,

@@ -7,5 +7,6 @@
   "storageBucket": "abiding-skein-gg02f.firebasestorage.app",
   "messagingSenderId": "718739492247",
   "measurementId": "",
-  "oAuthClientId": "718739492247-f07em6hrnluulvbtmvn93cc4l354e71i.apps.googleusercontent.com"
+  "oAuthClientId": "718739492247-f07em6hrnluulvbtmvn93cc4l354e71i.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
