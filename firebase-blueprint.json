@@ -17,7 +17,9 @@
       "description": "Global general configuration files of the system",
       "type": "object",
       "properties": {
-        "businessName": { "type": "string" }
+        "businessName": { "type": "string" },
+        "businessAddress": { "type": "string" },
+        "businessPhone": { "type": "string" }
       },
       "required": ["businessName"]
     },
@@ -115,6 +117,22 @@
         "paymentType": { "type": "string" }
       },
       "required": ["id", "saleId", "date", "items", "totalAmount"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Generated commercial invoices for customers or walk-in inquiries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientContact": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "discount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "invoiceNumber", "clientName", "items", "total", "date"]
     }
   },
   "firestore": {
@@ -149,6 +167,10 @@
     "returns/{returnId}": {
       "schema": "Return",
       "description": "Logged historic details of item standard return files"
+    },
+    "invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Generated invoices on products requested by customers and companies"
     }
   }
 }

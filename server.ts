@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { AsyncLocalStorage } from "async_hooks";
 
 // Multi-tenant request context storage
-const tenantStorage = new AsyncLocalStorage<{ username?: string }>();
+const tenantStorage = new AsyncLocalStorage<{ username?: string; licenseKey?: string }>();
 
 // Safe ES Module and CommonJS compatibility for __filename and __dirname
 const _filename = typeof __filename !== "undefined" ? __filename : fileURLToPath(import.meta.url);
@@ -91,10 +91,94 @@ const DEFAULT_PERMISSIONS = {
 
 app.use(express.json({ limit: "50mb" }));
 
+const userLicenseCache = new Map<string, string>();
+
+async function getLicenseKeyForUser(username: string): Promise<string | null> {
+  if (!username) return null;
+  if (username === "genesys_owner") return null;
+  if (userLicenseCache.has(username)) {
+    return userLicenseCache.get(username)!;
+  }
+
+  if (useFirestore && db) {
+    try {
+      const regsRef = db.collection("registered_customers");
+      const regsSnapshot = await regsRef.get();
+      for (const doc of regsSnapshot.docs) {
+        const reg = doc.data();
+        if (reg.licenseKey) {
+          const safeKey = reg.licenseKey.replace(/[^a-zA-Z0-9]/g, "_");
+          const userDoc = await db.collection(`tenant_${safeKey}_users`).doc(username).get();
+          if (userDoc.exists) {
+            userLicenseCache.set(username, reg.licenseKey);
+            return reg.licenseKey;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error finding user tenant in Firestore:", err);
+    }
+  } else {
+    const local = loadLocalDb();
+    for (const key of Object.keys(local)) {
+      if (key.startsWith("tenant_") && key.endsWith("_users")) {
+        const array = local[key] || [];
+        if (array.some((u: any) => u.username === username)) {
+          const match = key.match(/^tenant_(.*)_users$/);
+          if (match) {
+            const safeKey = match[1];
+            userLicenseCache.set(username, safeKey);
+            return safeKey;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+async function getDocumentDataForTenant(collectionName: string, docId: string, licenseKey: string): Promise<any | null> {
+  const finalCollection = getCollectionNameForTenant(collectionName, licenseKey);
+  if (useFirestore && db) {
+    try {
+      const docRef = db.collection(finalCollection).doc(docId);
+      const snapshot = await docRef.get();
+      if (snapshot.exists) {
+        return snapshot.data();
+      }
+    } catch (err) {
+      console.error(`Error retrieving document ${finalCollection}/${docId} from Firestore:`, err);
+    }
+    return null;
+  } else {
+    const local = loadLocalDb();
+    const localKey = finalCollection;
+    const array = local[localKey] || [];
+    const item = array.find((x: any) => {
+      if (collectionName === "users") {
+        return x.username === docId;
+      }
+      return x.id === docId;
+    });
+    return item || null;
+  }
+}
+
 // Express middleware to extract the X-User header and run the request in the AsyncLocalStorage context
 app.use((req, res, next) => {
   const username = req.headers["x-user"] ? String(req.headers["x-user"]) : "";
-  tenantStorage.run({ username }, next);
+  if (username && username !== "genesys_owner") {
+    getLicenseKeyForUser(username)
+      .then((licenseKey) => {
+        tenantStorage.run({ username, licenseKey: licenseKey || "" }, next);
+      })
+      .catch((err) => {
+        console.error("Error retrieving user license key in middleware:", err);
+        tenantStorage.run({ username }, next);
+      });
+  } else {
+    tenantStorage.run({ username }, next);
+  }
 });
 
 // Local offline DB helper managers
@@ -186,6 +270,12 @@ function getCollectionNameForTenant(collectionName: string, licenseKey?: string)
   // This keeps the system owner's logs, testing products, and central manager view 100% separate from tenant business data.
   if (username === "genesys_owner") {
     return `tenant_owner_${collectionName}`;
+  }
+  
+  if (!licenseKey) {
+    if (store && store.licenseKey) {
+      licenseKey = store.licenseKey;
+    }
   }
   
   if (!licenseKey) {
@@ -293,12 +383,19 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
         if (collectionName === "users") {
           return item.username === docId;
         }
+        if (collectionName === "registered_customers") {
+          return item.licenseKey === docId;
+        }
         return item.id === docId;
       });
       if (index > -1) {
         array[index] = { ...array[index], ...data };
       } else {
-        array.push({ ...data, id: docId });
+        if (collectionName === "registered_customers") {
+          array.push({ ...data });
+        } else {
+          array.push({ ...data, id: docId });
+        }
       }
       local[localKey] = array;
     }
@@ -329,6 +426,9 @@ async function deleteDocumentData(collectionName: string, docId: string): Promis
       const filtered = array.filter((item: any) => {
         if (collectionName === "users") {
           return item.username !== docId;
+        }
+        if (collectionName === "registered_customers") {
+          return item.licenseKey !== docId;
         }
         return item.id !== docId;
       });
@@ -363,6 +463,9 @@ async function getDocumentData(collectionName: string, docId: string): Promise<a
       const item = array.find((x: any) => {
         if (collectionName === "users") {
           return x.username === docId;
+        }
+        if (collectionName === "registered_customers") {
+          return x.licenseKey === docId;
         }
         return x.id === docId;
       });
@@ -568,6 +671,13 @@ async function pingCentralLicenseServer() {
   try {
     const license = getLocalLicense();
     if (!license) return;
+    
+    // Skip central registration for developer and never-expire owner bypass keys
+    if (license.key === "GENESYS-NEVER-A1B2C3D4-A20572B1" || (license.key && license.key.includes("-NEVER-"))) {
+      console.log("[Ping] Skipping central registration for owner/developer bypass key.");
+      return;
+    }
+
     const config = await getConfig();
     const users = await getCollectionData("users");
     const activeUsersCount = users.length;
@@ -670,6 +780,12 @@ app.get("/api/license/status", async (req, res) => {
   if (!license) {
     return res.json({ activated: false });
   }
+
+  const reg = await getDocumentData("registered_customers", license.key);
+  if (reg && reg.disabled) {
+    return res.json({ activated: true, license, isExpired: false, isDisabled: true });
+  }
+
   const isExpired = license.expiresAt ? (new Date() > new Date(license.expiresAt)) : false;
   
   // Background reporting ping to keep central server updated
@@ -681,18 +797,65 @@ app.get("/api/license/status", async (req, res) => {
 // App Config
 app.get("/api/config", async (req, res) => {
   const config = await getConfig();
-  res.json(config);
+  res.json({
+    businessName: config.businessName || "",
+    businessAddress: config.businessAddress || "",
+    businessPhone: config.businessPhone || "",
+  });
 });
 
 app.post("/api/config", async (req, res) => {
-  const { businessName } = req.body;
-  const config = { businessName };
+  const { businessName, businessAddress, businessPhone } = req.body;
+  const config = {
+    businessName: businessName || "",
+    businessAddress: businessAddress || "",
+    businessPhone: businessPhone || "",
+  };
   await setConfig(config);
 
   // Background update central server with the new business name
   pingCentralLicenseServer().catch(() => {});
 
   res.json(config);
+});
+
+// Invoices Endpoints
+app.get("/api/invoices", async (req, res) => {
+  const invoices = await getCollectionData("invoices");
+  res.json(invoices);
+});
+
+app.post("/api/invoices", async (req, res) => {
+  try {
+    const { invoiceNumber, clientName, clientContact, items, total, discount, vatEnabled, vatRate, vatAmount } = req.body;
+    const invoice = {
+      id: crypto.randomUUID(),
+      invoiceNumber: invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
+      clientName: clientName || "Walk-in Guest",
+      clientContact: clientContact || "",
+      items: items || [],
+      total: Number(total) || 0,
+      discount: Number(discount) || 0,
+      vatEnabled: Boolean(vatEnabled),
+      vatRate: Number(vatRate) || 0,
+      vatAmount: Number(vatAmount) || 0,
+      date: new Date().toISOString(),
+    };
+    await setDocumentData("invoices", invoice.id, invoice);
+    res.json(invoice);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/invoices/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteDocumentData("invoices", id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Central Tracking Endpoints for Owner Portal
@@ -702,6 +865,8 @@ app.post("/api/central/register", async (req, res) => {
     return res.status(400).json({ error: "Missing license key" });
   }
 
+  const existing = await getDocumentData("registered_customers", licenseKey);
+
   const payload = {
     licenseKey,
     licenseType,
@@ -710,7 +875,8 @@ app.post("/api/central/register", async (req, res) => {
     businessName: businessName || "Unnamed Business",
     domain: domain || "Local Instance",
     activeUsersCount: activeUsersCount || 0,
-    lastPingAt: lastPingAt || new Date().toISOString()
+    lastPingAt: lastPingAt || new Date().toISOString(),
+    disabled: existing ? (existing.disabled || false) : false
   };
 
   await setDocumentData("registered_customers", licenseKey, payload);
@@ -722,14 +888,99 @@ app.get("/api/central/registrations", async (req, res) => {
   if (requestingUser !== "genesys_owner") {
     return res.status(403).json({ error: "Unauthorized: Owner only" });
   }
-  const registrations = await getCollectionData("registered_customers");
-  res.json(registrations);
+  try {
+    const registrations = await getCollectionData("registered_customers");
+    const sanitized = registrations.map(reg => ({
+      ...reg,
+      licenseKey: reg.licenseKey || reg.id
+    }));
+    res.json(sanitized);
+  } catch (err: any) {
+    console.error("Error retrieving central registrations:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/central/registrations/:licenseKey/toggle-status", async (req, res) => {
+  const requestingUser = req.headers["x-user"];
+  if (requestingUser !== "genesys_owner") {
+    return res.status(403).json({ error: "Unauthorized: Owner only" });
+  }
+  const { licenseKey } = req.params;
+  try {
+    const existing = await getDocumentData("registered_customers", licenseKey);
+    if (!existing) {
+      return res.status(404).json({ error: "Registration not found" });
+    }
+    existing.disabled = !existing.disabled;
+    existing.licenseKey = existing.licenseKey || licenseKey;
+    await setDocumentData("registered_customers", licenseKey, existing);
+    res.json({ success: true, disabled: existing.disabled });
+  } catch (err: any) {
+    console.error(`Error toggling license status for ${licenseKey}:`, err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/central/registrations/:licenseKey", async (req, res) => {
+  const requestingUser = req.headers["x-user"];
+  if (requestingUser !== "genesys_owner") {
+    return res.status(403).json({ error: "Unauthorized: Owner only" });
+  }
+  const { licenseKey } = req.params;
+  try {
+    console.log(`[Delete Registration] Deleting customer registry document with licenseKey/ID: ${licenseKey}`);
+    await deleteDocumentData("registered_customers", licenseKey);
+    
+    // Clear from user license cache so the system no longer maps users to this key
+    for (const [username, cachedKey] of userLicenseCache.entries()) {
+      if (cachedKey === licenseKey) {
+        userLicenseCache.delete(username);
+        console.log(`[Delete Registration] Evicted cache entry for user: ${username}`);
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error(`Error deleting registration for ${licenseKey}:`, err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Auth
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-  const user = await getDocumentData("users", username);
+  let user = await getDocumentData("users", username);
+  let userLicenseKey = "";
+
+  if (user) {
+    const localLic = getLocalLicense();
+    if (localLic && localLic.key) {
+      userLicenseKey = localLic.key;
+    }
+  } else {
+    // Search across all other registered customers to find the user
+    if (username !== "genesys_owner") {
+      try {
+        const registrations = await getCollectionData("registered_customers");
+        for (const reg of registrations) {
+          if (reg.licenseKey) {
+            const u = await getDocumentDataForTenant("users", username, reg.licenseKey);
+            if (u) {
+              user = u;
+              userLicenseKey = reg.licenseKey;
+              // Pre-populate the userLicenseCache so subsequent calls are fast
+              userLicenseCache.set(username, reg.licenseKey);
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error looking up user across registered customers:", err);
+      }
+    }
+  }
+
   if (!user) {
     return res.status(401).json({ error: "Invalid username. The username entered does not exist." });
   }
@@ -742,6 +993,34 @@ app.post("/api/login", async (req, res) => {
 
   // License check for non-owner users to prevent bypass
   if (username !== "genesys_owner") {
+    // If the found user's license is different from current local license,
+    // let's dynamically update the local license so the server's default matches!
+    if (userLicenseKey) {
+      const currentLic = getLocalLicense();
+      if (!currentLic || currentLic.key !== userLicenseKey) {
+        if (useFirestore && db) {
+          try {
+            const regsRef = db.collection("registered_customers");
+            const regDoc = await regsRef.doc(userLicenseKey).get();
+            if (regDoc.exists) {
+              const regData = regDoc.data();
+              const license = {
+                key: userLicenseKey,
+                type: regData?.licenseType || "1YEAR",
+                activatedAt: regData?.activatedAt || new Date().toISOString(),
+                expiresAt: regData?.expiresAt || null,
+              };
+              saveLocalLicense(license);
+              await setDocumentData("settings", "license", license);
+              console.log(`[Tenant Switch] Switched active local license to ${userLicenseKey} (${regData?.businessName})`);
+            }
+          } catch (e: any) {
+            console.error("Error auto-switching local license on login:", e.message);
+          }
+        }
+      }
+    }
+
     let license = getLocalLicense();
     if (!license && useFirestore && db) {
       try {
@@ -759,6 +1038,13 @@ app.post("/api/login", async (req, res) => {
     }
     if (!license) {
       return res.status(403).json({ error: "System is not activated. Please activate your license to continue." });
+    }
+    const activeKey = userLicenseKey || license.key;
+    if (activeKey) {
+      const reg = await getDocumentData("registered_customers", activeKey);
+      if (reg && reg.disabled) {
+        return res.status(403).json({ error: "This license/account has been disabled by the system administrator. Please contact support." });
+      }
     }
     const isExpired = license.expiresAt ? (new Date() > new Date(license.expiresAt)) : false;
     if (isExpired) {

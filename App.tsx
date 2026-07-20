@@ -29,7 +29,8 @@ import {
   Calendar,
   RotateCcw,
   Lock,
-  Key
+  Key,
+  Building
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
@@ -37,6 +38,7 @@ import autoTable from "jspdf-autotable";
 import { exportToPDF, exportToExcel } from "./lib/exportUtils";
 import { User, License, Product, Customer, Sale, UserPermissions } from "./types";
 import { cn, formatCurrency, formatDate, formatCurrencyPDF } from "./lib/utils";
+import InvoiceMenuView from "./components/InvoiceMenuView";
 import { 
   LineChart, 
   Line, 
@@ -103,7 +105,7 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [license, setLicense] = useState<License | null>(null);
-  const [config, setConfig] = useState<{ businessName: string }>({ businessName: "" });
+  const [config, setConfig] = useState<{ businessName: string; businessAddress: string; businessPhone: string }>({ businessName: "", businessAddress: "", businessPhone: "" });
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showLicenseReminder, setShowLicenseReminder] = useState(false);
@@ -350,7 +352,10 @@ export default function App() {
             </>
           )}
           {user?.permissions?.sales.create && (
-            <SidebarItem icon={ShoppingCart} label="POS (Sale)" active={activeTab === "pos"} onClick={() => setActiveTab("pos")} collapsed={isSidebarCollapsed} />
+            <>
+              <SidebarItem icon={ShoppingCart} label="POS (Sale)" active={activeTab === "pos"} onClick={() => setActiveTab("pos")} collapsed={isSidebarCollapsed} />
+              <SidebarItem icon={FileText} label="Invoice Menu" active={activeTab === "invoices"} onClick={() => setActiveTab("invoices")} collapsed={isSidebarCollapsed} />
+            </>
           )}
           {user?.permissions?.sales.history && (
             <SidebarItem icon={History} label="Sales History" active={activeTab === "sales"} onClick={() => setActiveTab("sales")} collapsed={isSidebarCollapsed} />
@@ -418,10 +423,11 @@ export default function App() {
               {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
+              {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
               {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
               {activeTab === "credit" && user?.permissions?.credit.view && <CreditView key="cred" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "customers" && user?.permissions?.customers.view && <CustomerView key="cust" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
-              {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} />}
+              {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} config={config} setConfig={setConfig} />}
            </AnimatePresence>
 
            {/* License Reminder Modal */}
@@ -3571,7 +3577,7 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
     );
 }
 
-function AdminView({ user, refresh, userRole, userPermissions, license }: { user: any, refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, license?: License, key?: string }) {
+function AdminView({ user, refresh, userRole, userPermissions, license, config, setConfig }: { user: any, refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, license?: License, config: any, setConfig: any, key?: string }) {
     const [activeSubTab, setActiveSubTab] = useState("general");
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -3681,7 +3687,74 @@ function AdminView({ user, refresh, userRole, userPermissions, license }: { user
                         </div>
                     </div>
 
-                    <div className="bg-blue-50 border border-blue-100 p-8 rounded-[2rem] flex gap-4">
+                    <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6 font-sans">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-xl">
+                                <Building size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800">Business Profile</h3>
+                                <p className="text-sm text-slate-400">Manage details shown on invoices and receipts</p>
+                            </div>
+                        </div>
+
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            const formData = new FormData(e.currentTarget);
+                            const name = formData.get("businessName") as string;
+                            const address = formData.get("businessAddress") as string;
+                            const phone = formData.get("businessPhone") as string;
+
+                            const res = await fetch("/api/config", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ businessName: name, businessAddress: address, businessPhone: phone }),
+                            });
+                            if (res.ok) {
+                                setConfig({ businessName: name, businessAddress: address, businessPhone: phone });
+                                alert("Business Profile updated successfully!");
+                            } else {
+                                alert("Failed to update Business Profile.");
+                            }
+                        }} className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Business Name</label>
+                                <input 
+                                    name="businessName"
+                                    defaultValue={config.businessName}
+                                    placeholder="Business Name"
+                                    required
+                                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl outline-none text-slate-800 font-medium focus:border-blue-500 transition-all text-sm"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Business Address</label>
+                                <input 
+                                    name="businessAddress"
+                                    defaultValue={config.businessAddress}
+                                    placeholder="Address, City, Country"
+                                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl outline-none text-slate-800 font-medium focus:border-blue-500 transition-all text-sm"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Business Phone</label>
+                                <input 
+                                    name="businessPhone"
+                                    defaultValue={config.businessPhone}
+                                    placeholder="e.g. +233 24 000 0000"
+                                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl outline-none text-slate-800 font-medium focus:border-blue-500 transition-all text-sm"
+                                />
+                            </div>
+                            <button 
+                                type="submit"
+                                className="w-full bg-slate-900 text-white p-3 rounded-xl font-bold hover:bg-black transition-all cursor-pointer"
+                            >
+                                Save Profile Changes
+                            </button>
+                        </form>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-100 p-8 rounded-[2rem] flex gap-4 md:col-span-2">
                         <ShieldCheck className="text-blue-600 shrink-0" size={32} />
                         <div className="text-sm text-blue-800 space-y-2">
                             <p className="text-lg font-bold">Admin Privileges Active</p>
@@ -3784,6 +3857,13 @@ function AdminView({ user, refresh, userRole, userPermissions, license }: { user
 function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) {
     const [registrations, setRegistrations] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [confirmDelete, setConfirmDelete] = useState<{ key: string; name: string } | null>(null);
+    const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+    const showToast = (message: string, type: "success" | "error") => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 5000);
+    };
 
     const fetchRegistrations = async () => {
         try {
@@ -3809,20 +3889,74 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
     }, []);
 
     const getRemainingDays = (expiryStr: string) => {
+        if (!expiryStr) return Infinity;
         const expiry = new Date(expiryStr).getTime();
+        if (isNaN(expiry)) return -1;
         const now = new Date().getTime();
         const diff = expiry - now;
         return Math.ceil(diff / (1000 * 60 * 60 * 24));
     };
 
-    const getStatusBadge = (expiryStr: string) => {
+    const getStatusBadge = (expiryStr: string, disabled: boolean) => {
+        if (disabled) {
+            return <span className="px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-xs font-bold uppercase">Disabled</span>;
+        }
+        if (!expiryStr) {
+            return <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold uppercase">Lifetime</span>;
+        }
         const days = getRemainingDays(expiryStr);
-        if (days <= 0) {
+        if (days === -1 || days <= 0) {
             return <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold uppercase">Expired</span>;
         } else if (days <= 7) {
             return <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold uppercase">Expiring ({days}d)</span>;
         } else {
             return <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold uppercase">Active ({days}d)</span>;
+        }
+    };
+
+    const handleToggleStatus = async (licenseKey: string) => {
+        try {
+            const res = await fetch(`/api/central/registrations/${encodeURIComponent(licenseKey)}/toggle-status`, {
+                method: "POST",
+                headers: {
+                    "X-User": currentUser?.username || ""
+                }
+            });
+            if (res.ok) {
+                showToast("License status updated successfully", "success");
+                fetchRegistrations();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                showToast(`Failed to toggle license status: ${data.error || res.statusText}`, "error");
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Network error occurred while toggling status", "error");
+        }
+    };
+
+    const handleDeleteRegistration = (licenseKey: string, businessName: string) => {
+        setConfirmDelete({ key: licenseKey, name: businessName });
+    };
+
+    const executeDelete = async (licenseKey: string) => {
+        try {
+            const res = await fetch(`/api/central/registrations/${encodeURIComponent(licenseKey)}`, {
+                method: "DELETE",
+                headers: {
+                    "X-User": currentUser?.username || ""
+                }
+            });
+            if (res.ok) {
+                showToast("Registration deleted successfully", "success");
+                fetchRegistrations();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                showToast(`Failed to delete license registration: ${data.error || res.statusText}`, "error");
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Network error occurred during deletion", "error");
         }
     };
 
@@ -3863,17 +3997,18 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase">Duration & Expiry</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase text-center">Staff Count</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase">Last Seen</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase text-center">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {registrations.map((reg) => (
-                                    <tr key={reg.licenseKey} className="hover:bg-slate-50/50">
+                                    <tr key={reg.licenseKey || reg.id} className={cn("hover:bg-slate-50/50 transition-all", reg.disabled ? "opacity-60 bg-slate-50/20" : "")}>
                                         <td className="p-4 pl-6">
                                             <div className="font-bold text-slate-800">{reg.businessName}</div>
                                             <div className="text-xs text-slate-400 font-mono mt-0.5">{reg.domain || 'Local Instance'}</div>
                                         </td>
                                         <td className="p-4 font-mono text-xs text-slate-600 select-all">
-                                            {reg.licenseKey}
+                                            {reg.licenseKey || reg.id}
                                         </td>
                                         <td className="p-4">
                                             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px] uppercase">
@@ -3881,14 +4016,14 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                             </span>
                                         </td>
                                         <td className="p-4 text-center">
-                                            {getStatusBadge(reg.expiresAt)}
+                                            {getStatusBadge(reg.expiresAt, reg.disabled)}
                                         </td>
                                         <td className="p-4 text-xs">
                                             <div className="text-slate-700 font-semibold">
-                                                Expires: {new Date(reg.expiresAt).toLocaleDateString()}
+                                                {reg.expiresAt ? `Expires: ${new Date(reg.expiresAt).toLocaleDateString()}` : "Expires: Lifetime"}
                                             </div>
                                             <div className="text-slate-400 mt-0.5">
-                                                Activated: {new Date(reg.activatedAt).toLocaleDateString()}
+                                                Activated: {reg.activatedAt ? new Date(reg.activatedAt).toLocaleDateString() : 'N/A'}
                                             </div>
                                         </td>
                                         <td className="p-4 text-center font-bold text-slate-700">
@@ -3897,6 +4032,29 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                         <td className="p-4 text-xs text-slate-400">
                                             {new Date(reg.lastPingAt || reg.activatedAt).toLocaleString()}
                                         </td>
+                                        <td className="p-4 text-center">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <button
+                                                    onClick={() => handleToggleStatus(reg.licenseKey || reg.id)}
+                                                    className={cn(
+                                                        "px-3 py-1.5 rounded-lg font-bold text-xs transition-all",
+                                                        reg.disabled
+                                                            ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-600"
+                                                            : "bg-amber-50 hover:bg-amber-100 text-amber-600"
+                                                    )}
+                                                    title={reg.disabled ? "Enable License" : "Disable License"}
+                                                >
+                                                    {reg.disabled ? "Enable" : "Disable"}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteRegistration(reg.licenseKey || reg.id, reg.businessName)}
+                                                    className="bg-red-50 hover:bg-red-100 text-red-600 p-1.5 rounded-lg transition-all"
+                                                    title="Delete Registration"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -3904,6 +4062,81 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                     </div>
                 </div>
             )}
+
+            {/* Custom Confirmation Modal */}
+            <AnimatePresence>
+                {confirmDelete && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white rounded-[2rem] p-8 max-w-md w-full border border-slate-100 shadow-2xl space-y-6"
+                        >
+                            <div className="text-center space-y-3">
+                                <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto text-xl">
+                                    <Trash2 size={24} />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800">Delete Registration?</h3>
+                                <p className="text-sm text-slate-500 leading-relaxed">
+                                    Are you sure you want to delete the registration for <strong className="text-slate-700">"{confirmDelete.name}"</strong>? This will permanently remove this customer instance registry from the central server.
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setConfirmDelete(null)}
+                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-bold text-sm transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        const keyToDelete = confirmDelete.key;
+                                        setConfirmDelete(null);
+                                        await executeDelete(keyToDelete);
+                                    }}
+                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-2xl font-bold text-sm transition-all shadow-lg shadow-red-200"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Custom Premium Toast Notification */}
+            <AnimatePresence>
+                {notification && (
+                    <div className="fixed bottom-6 right-6 z-50">
+                        <motion.div
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: 20, opacity: 0 }}
+                            className={cn(
+                                "flex items-center gap-3 px-5 py-4 rounded-2xl shadow-xl border font-medium text-sm bg-white",
+                                notification.type === "success" 
+                                    ? "text-emerald-800 border-emerald-100 bg-emerald-50/90" 
+                                    : "text-red-800 border-red-100 bg-red-50/90"
+                            )}
+                        >
+                            <div className={cn(
+                                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
+                                notification.type === "success" ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                            )}>
+                                {notification.type === "success" ? "✓" : "✗"}
+                            </div>
+                            <div className="flex-1">{notification.message}</div>
+                            <button 
+                                onClick={() => setNotification(null)}
+                                className="text-slate-400 hover:text-slate-600 ml-2 font-bold focus:outline-none"
+                            >
+                                ✕
+                            </button>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
