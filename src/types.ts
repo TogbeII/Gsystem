@@ -71,8 +71,6 @@ export interface PaymentRecord {
   date: string;
   saleId?: string;
 }
-<<<<<<< HEAD
-=======
 
 export interface InvoiceItem {
   id: string;
@@ -94,4 +92,3 @@ export interface Invoice {
   vatRate?: number;
   vatAmount?: number;
 }
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)

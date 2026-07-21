@@ -29,12 +29,8 @@ import {
   Calendar,
   RotateCcw,
   Lock,
-<<<<<<< HEAD
-  Key
-=======
   Key,
   Building
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
@@ -42,10 +38,7 @@ import autoTable from "jspdf-autotable";
 import { exportToPDF, exportToExcel } from "./lib/exportUtils";
 import { User, License, Product, Customer, Sale, UserPermissions } from "./types";
 import { cn, formatCurrency, formatDate, formatCurrencyPDF } from "./lib/utils";
-<<<<<<< HEAD
-=======
 import InvoiceMenuView from "./components/InvoiceMenuView";
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 import { 
   LineChart, 
   Line, 
@@ -112,11 +105,7 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [license, setLicense] = useState<License | null>(null);
-<<<<<<< HEAD
-  const [config, setConfig] = useState<{ businessName: string }>({ businessName: "" });
-=======
   const [config, setConfig] = useState<{ businessName: string; businessAddress: string; businessPhone: string }>({ businessName: "", businessAddress: "", businessPhone: "" });
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showLicenseReminder, setShowLicenseReminder] = useState(false);
@@ -256,9 +245,6 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok) {
-<<<<<<< HEAD
-      setUser(data.user);
-=======
       activeUsername = data.user.username;
       setUser(data.user);
       
@@ -277,7 +263,6 @@ export default function App() {
         console.error("Error refreshing state on login:", err);
       }
 
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
       setStep("APP");
     } else {
       setLoginError(data.error || "Wrong credentials entered");
@@ -286,17 +271,11 @@ export default function App() {
   };
 
   const handleSignOut = () => {
-<<<<<<< HEAD
-    setUser(null);
-    setStep("LOGIN");
-    setActiveTab("dashboard");
-=======
     activeUsername = null;
     setUser(null);
     setStep("LOGIN");
     setActiveTab("dashboard");
     checkInitialState();
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
   };
 
   // --- Rendering Steps ---
@@ -323,11 +302,7 @@ export default function App() {
   }
 
   if (step === "BUSINESS_SETUP") return <BusinessSetup onComplete={handleBusinessSetup} />;
-<<<<<<< HEAD
-  if (step === "ADMIN_SETUP") return <AdminSetup onComplete={handleAdminSetup} />;
-=======
   if (step === "ADMIN_SETUP") return <AdminSetup onComplete={handleAdminSetup} onBackToLogin={() => setStep("LOGIN")} />;
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
   // Strict session check to prevent bypass
   if (!user) {
@@ -377,14 +352,10 @@ export default function App() {
             </>
           )}
           {user?.permissions?.sales.create && (
-<<<<<<< HEAD
-            <SidebarItem icon={ShoppingCart} label="POS (Sale)" active={activeTab === "pos"} onClick={() => setActiveTab("pos")} collapsed={isSidebarCollapsed} />
-=======
             <>
               <SidebarItem icon={ShoppingCart} label="POS (Sale)" active={activeTab === "pos"} onClick={() => setActiveTab("pos")} collapsed={isSidebarCollapsed} />
               <SidebarItem icon={FileText} label="Invoice Menu" active={activeTab === "invoices"} onClick={() => setActiveTab("invoices")} collapsed={isSidebarCollapsed} />
             </>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
           )}
           {user?.permissions?.sales.history && (
             <SidebarItem icon={History} label="Sales History" active={activeTab === "sales"} onClick={() => setActiveTab("sales")} collapsed={isSidebarCollapsed} />
@@ -452,18 +423,11 @@ export default function App() {
               {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
-<<<<<<< HEAD
-              {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
-              {activeTab === "credit" && user?.permissions?.credit.view && <CreditView key="cred" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
-              {activeTab === "customers" && user?.permissions?.customers.view && <CustomerView key="cust" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
-              {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} />}
-=======
               {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
               {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
               {activeTab === "credit" && user?.permissions?.credit.view && <CreditView key="cred" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "customers" && user?.permissions?.customers.view && <CustomerView key="cust" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} config={config} setConfig={setConfig} />}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
            </AnimatePresence>
 
            {/* License Reminder Modal */}
@@ -736,11 +700,7 @@ function BusinessSetup({ onComplete }: any) {
   );
 }
 
-<<<<<<< HEAD
-function AdminSetup({ onComplete }: any) {
-=======
 function AdminSetup({ onComplete, onBackToLogin }: any) {
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
     const [form, setForm] = useState({ username: "", password: "", fullName: "" });
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 p-6">
@@ -775,8 +735,6 @@ function AdminSetup({ onComplete, onBackToLogin }: any) {
             >
               Create Administrator
             </button>
-<<<<<<< HEAD
-=======
             {onBackToLogin && (
               <button 
                 type="button"
@@ -786,7 +744,6 @@ function AdminSetup({ onComplete, onBackToLogin }: any) {
                 Already have an account? Log in
               </button>
             )}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
           </div>
         </div>
       </div>
@@ -1418,10 +1375,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
     const [isCustomPackQty, setIsCustomPackQty] = useState(false);
     const [customPackQty, setCustomPackQty] = useState("");
     const [isNewCategory, setIsNewCategory] = useState(false);
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
     const categories = Array.from(new Set(products.map(p => p.category))).sort();
     const [form, setForm] = useState({ 
         name: "", category: "Safety Vests", price: "", 
@@ -1469,38 +1423,13 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
     };
 
     const handleTransfer = async () => {
-<<<<<<< HEAD
-        if (!transferModal) return;
-        
-=======
         if (!transferModal || isSubmitting) return;
         
         setIsSubmitting(true);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         const calculatedQty = isBulkTransfer 
             ? Number(transferQty) * (isCustomPackQty ? (Number(customPackQty) || (transferModal.bulkUnitSize || 1)) : (transferModal.bulkUnitSize || 1)) 
             : Number(transferQty);
 
-<<<<<<< HEAD
-        const res = await fetch("/api/inventory/transfer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                productId: transferModal.id,
-                quantity: calculatedQty,
-                isBulk: false
-            }),
-        });
-        if (res.ok) {
-            setTransferModal(null);
-            setTransferQty("1");
-            setCustomPackQty("");
-            setIsCustomPackQty(false);
-            refresh();
-        } else {
-            const err = await res.json();
-            alert(err.error || "Transfer failed");
-=======
         try {
             const res = await fetch("/api/inventory/transfer", {
                 method: "POST",
@@ -1526,7 +1455,6 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
             alert("Transfer failed due to a network error.");
         } finally {
             setIsSubmitting(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         }
     };
 
@@ -1822,11 +1750,6 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                     </button>
                                     <button 
                                         onClick={handleTransfer}
-<<<<<<< HEAD
-                                        className="flex-1 py-4 px-6 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/20 active:scale-95 transition-all font-sans uppercase tracking-widest"
-                                    >
-                                        Confirm
-=======
                                         disabled={isSubmitting}
                                         className="flex-1 py-4 px-6 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/20 active:scale-95 disabled:opacity-50 transition-all font-sans uppercase tracking-widest flex items-center justify-center gap-2"
                                     >
@@ -1838,7 +1761,6 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                         ) : (
                                             "Confirm"
                                         )}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                     </button>
                                 </div>
                             </div>
@@ -2101,10 +2023,7 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     const [lastSale, setLastSale] = useState<any>(null);
     const [showReceipt, setShowReceipt] = useState(false);
     const [errorMsg, setErrorMsg] = useState("");
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
     const filteredProducts = products.filter(p => 
         (p.hasShopInventory !== false) && (
@@ -2129,21 +2048,14 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     const total = cart.reduce((acc, i) => acc + (i.price * (Number(i.quantity) || 0)), 0);
 
     const handleCheckout = async () => {
-<<<<<<< HEAD
-        if (cart.length === 0) return;
-=======
         if (cart.length === 0 || isSubmitting) return;
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         setErrorMsg("");
         if (paymentType === "credit" && !selectedCustomer) {
             setErrorMsg("Please SELECT a customer for credit sales!");
             return;
         }
         
-<<<<<<< HEAD
-=======
         setIsSubmitting(true);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         try {
             const discountAmt = Number(discount) || 0;
             const finalTotal = Math.max(0, total - discountAmt);
@@ -2181,11 +2093,8 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
         } catch (error: any) {
             console.error("Checkout error:", error);
             setErrorMsg(`Checkout error: ${error.message || "Failed to connect to server"}`);
-<<<<<<< HEAD
-=======
         } finally {
             setIsSubmitting(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         }
     };
 
@@ -2534,10 +2443,6 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                             </div>
                         )}
 
-<<<<<<< HEAD
-                        <button type="button" onClick={handleCheckout} className="w-full bg-blue-600 text-white p-3.5 rounded-xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/15 disabled:opacity-50 text-sm cursor-pointer" disabled={cart.length === 0}>
-                            Checkout & Print
-=======
                         <button type="button" onClick={handleCheckout} className="w-full bg-blue-600 text-white p-3.5 rounded-xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/15 disabled:opacity-50 text-sm cursor-pointer flex items-center justify-center gap-2" disabled={cart.length === 0 || isSubmitting}>
                             {isSubmitting ? (
                                 <>
@@ -2547,7 +2452,6 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                             ) : (
                                 "Checkout & Print"
                             )}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                         </button>
                     </div>
                 </div>
@@ -2656,10 +2560,7 @@ function CreditView({ customers, refresh, userPermissions }: { customers: Custom
     const [history, setHistory] = useState<any[]>([]);
     const [payModal, setPayModal] = useState(false);
     const [payAmount, setPayAmount] = useState("");
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
     const handleExportPDF = () => {
         const headers = ["Customer", "Phone", "Balance Due"];
@@ -2679,19 +2580,6 @@ function CreditView({ customers, refresh, userPermissions }: { customers: Custom
     };
 
     const handlePayment = async () => {
-<<<<<<< HEAD
-        if (!selectedCustomer) return;
-        const res = await fetch("/api/payments", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ customerId: selectedCustomer.id, amount: Number(payAmount) }),
-        });
-        if (res.ok) {
-            setPayModal(false);
-            setPayAmount("");
-            refresh();
-            viewHistory(selectedCustomer);
-=======
         if (!selectedCustomer || isSubmitting) return;
         setIsSubmitting(true);
         try {
@@ -2713,7 +2601,6 @@ function CreditView({ customers, refresh, userPermissions }: { customers: Custom
             alert("Payment failed due to network error");
         } finally {
             setIsSubmitting(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         }
     };
 
@@ -2854,9 +2741,6 @@ function CreditView({ customers, refresh, userPermissions }: { customers: Custom
                                     <label className="text-sm font-bold">Amount to Pay (GH₵)</label>
                                     <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} className="w-full p-4 bg-slate-50 border rounded-2xl text-xl font-bold" />
                                 </div>
-<<<<<<< HEAD
-                                <button onClick={handlePayment} className="w-full bg-green-600 text-white p-4 rounded-2xl font-bold shadow-lg shadow-green-500/20">Confirm Payment</button>
-=======
                                 <button onClick={handlePayment} disabled={isSubmitting} className="w-full bg-green-600 text-white p-4 rounded-2xl font-bold shadow-lg shadow-green-500/20 disabled:opacity-50 flex items-center justify-center gap-2">
                                     {isSubmitting ? (
                                         <>
@@ -2867,7 +2751,6 @@ function CreditView({ customers, refresh, userPermissions }: { customers: Custom
                                         "Confirm Payment"
                                     )}
                                 </button>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                 <button onClick={() => setPayModal(false)} className="w-full text-slate-400 font-bold py-2">Cancel</button>
                             </div>
                         </motion.div>
@@ -2882,10 +2765,7 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
     const [showModal, setShowModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [form, setForm] = useState({ name: "", phone: "", address: "" });
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
     const filteredCustomers = customers.filter(c => 
         c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -2903,17 +2783,6 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
     };
 
     const handleAdd = async () => {
-<<<<<<< HEAD
-         const res = await fetch("/api/customers", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(form),
-        });
-        if (res.ok) {
-            setShowModal(false);
-            refresh();
-            setForm({ name: "", phone: "", address: "" });
-=======
         if (isSubmitting) return;
         setIsSubmitting(true);
         try {
@@ -2934,7 +2803,6 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
             alert("Network error occurred while adding customer");
         } finally {
             setIsSubmitting(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         }
     };
 
@@ -3004,9 +2872,6 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
                                 <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Full Name" className="w-full p-4 bg-slate-50 border rounded-xl" />
                                 <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="Phone Number" className="w-full p-4 bg-slate-50 border rounded-xl" />
                                 <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} placeholder="Address" className="w-full p-4 bg-slate-50 border rounded-xl" />
-<<<<<<< HEAD
-                                <button onClick={handleAdd} className="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold shadow-xl shadow-blue-500/20">Register</button>
-=======
                                 <button onClick={handleAdd} disabled={isSubmitting} className="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold shadow-xl shadow-blue-500/20 disabled:opacity-50 flex items-center justify-center gap-2">
                                     {isSubmitting ? (
                                         <>
@@ -3017,7 +2882,6 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
                                         "Register"
                                     )}
                                 </button>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                 <button onClick={() => setShowModal(false)} className="w-full text-slate-400 font-bold py-2">Cancel</button>
                             </div>
                         </motion.div>
@@ -3037,10 +2901,7 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
     
     const [selectedSaleForReturn, setSelectedSaleForReturn] = useState<Sale | null>(null);
     const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
-<<<<<<< HEAD
-=======
     const [isSubmitting, setIsSubmitting] = useState(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
     const filteredSales = sales.filter(s => {
         // Date Filtering
@@ -3220,11 +3081,7 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
     };
 
     const handleSubmitReturn = async () => {
-<<<<<<< HEAD
-        if (!selectedSaleForReturn) return;
-=======
         if (!selectedSaleForReturn || isSubmitting) return;
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         const itemsToSubmit = Object.entries(returnQuantities)
             .map(([itemId, qty]) => ({ id: itemId, quantity: Number(qty) }))
             .filter(item => item.quantity > 0);
@@ -3234,10 +3091,7 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
             return;
         }
 
-<<<<<<< HEAD
-=======
         setIsSubmitting(true);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         try {
             const res = await fetch("/api/returns", {
                 method: "POST",
@@ -3260,11 +3114,8 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
         } catch (err) {
             console.error(err);
             alert("Failed to submit returns because of a network error.");
-<<<<<<< HEAD
-=======
         } finally {
             setIsSubmitting(false);
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         }
     };
 
@@ -3692,13 +3543,6 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                                             <button
                                                 type="button"
                                                 onClick={handleSubmitReturn}
-<<<<<<< HEAD
-                                                disabled={totalRefundValue <= 0}
-                                                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all text-center flex items-center justify-center gap-2"
-                                            >
-                                                <Undo2 size={18} />
-                                                Process Goods Return
-=======
                                                 disabled={totalRefundValue <= 0 || isSubmitting}
                                                 className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-red-500/10 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all text-center flex items-center justify-center gap-2"
                                             >
@@ -3713,7 +3557,6 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                                                         Process Goods Return
                                                     </>
                                                 )}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                             </button>
                                             <button
                                                 type="button"
@@ -3734,11 +3577,7 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
     );
 }
 
-<<<<<<< HEAD
-function AdminView({ user, refresh, userRole, userPermissions, license }: { user: any, refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, license?: License, key?: string }) {
-=======
 function AdminView({ user, refresh, userRole, userPermissions, license, config, setConfig }: { user: any, refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, license?: License, config: any, setConfig: any, key?: string }) {
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
     const [activeSubTab, setActiveSubTab] = useState("general");
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -3848,9 +3687,6 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
                         </div>
                     </div>
 
-<<<<<<< HEAD
-                    <div className="bg-blue-50 border border-blue-100 p-8 rounded-[2rem] flex gap-4">
-=======
                     <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm space-y-6 font-sans">
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-xl">
@@ -3919,7 +3755,6 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
                     </div>
 
                     <div className="bg-blue-50 border border-blue-100 p-8 rounded-[2rem] flex gap-4 md:col-span-2">
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                         <ShieldCheck className="text-blue-600 shrink-0" size={32} />
                         <div className="text-sm text-blue-800 space-y-2">
                             <p className="text-lg font-bold">Admin Privileges Active</p>
@@ -3946,10 +3781,7 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
                                         <option value="6MONTH">6 Months</option>
                                         <option value="1YEAR">1 Year</option>
                                         <option value="2YEAR">2 Years</option>
-<<<<<<< HEAD
-=======
                                         <option value="NEVER">Never Expires (Lifetime)</option>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                     </select>
                                 </div>
                                 <button 
@@ -4025,8 +3857,6 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
 function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) {
     const [registrations, setRegistrations] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-<<<<<<< HEAD
-=======
     const [confirmDelete, setConfirmDelete] = useState<{ key: string; name: string } | null>(null);
     const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -4034,7 +3864,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
         setNotification({ message, type });
         setTimeout(() => setNotification(null), 5000);
     };
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
 
     const fetchRegistrations = async () => {
         try {
@@ -4060,23 +3889,14 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
     }, []);
 
     const getRemainingDays = (expiryStr: string) => {
-<<<<<<< HEAD
-        const expiry = new Date(expiryStr).getTime();
-=======
         if (!expiryStr) return Infinity;
         const expiry = new Date(expiryStr).getTime();
         if (isNaN(expiry)) return -1;
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         const now = new Date().getTime();
         const diff = expiry - now;
         return Math.ceil(diff / (1000 * 60 * 60 * 24));
     };
 
-<<<<<<< HEAD
-    const getStatusBadge = (expiryStr: string) => {
-        const days = getRemainingDays(expiryStr);
-        if (days <= 0) {
-=======
     const getStatusBadge = (expiryStr: string, disabled: boolean) => {
         if (disabled) {
             return <span className="px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-xs font-bold uppercase">Disabled</span>;
@@ -4086,7 +3906,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
         }
         const days = getRemainingDays(expiryStr);
         if (days === -1 || days <= 0) {
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
             return <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold uppercase">Expired</span>;
         } else if (days <= 7) {
             return <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold uppercase">Expiring ({days}d)</span>;
@@ -4095,8 +3914,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
         }
     };
 
-<<<<<<< HEAD
-=======
     const handleToggleStatus = async (licenseKey: string) => {
         try {
             const res = await fetch(`/api/central/registrations/${encodeURIComponent(licenseKey)}/toggle-status`, {
@@ -4143,7 +3960,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
         }
     };
 
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center mb-4">
@@ -4181,29 +3997,18 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase">Duration & Expiry</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase text-center">Staff Count</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase">Last Seen</th>
-<<<<<<< HEAD
-=======
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase text-center">Actions</th>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {registrations.map((reg) => (
-<<<<<<< HEAD
-                                    <tr key={reg.licenseKey} className="hover:bg-slate-50/50">
-=======
                                     <tr key={reg.licenseKey || reg.id} className={cn("hover:bg-slate-50/50 transition-all", reg.disabled ? "opacity-60 bg-slate-50/20" : "")}>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                         <td className="p-4 pl-6">
                                             <div className="font-bold text-slate-800">{reg.businessName}</div>
                                             <div className="text-xs text-slate-400 font-mono mt-0.5">{reg.domain || 'Local Instance'}</div>
                                         </td>
                                         <td className="p-4 font-mono text-xs text-slate-600 select-all">
-<<<<<<< HEAD
-                                            {reg.licenseKey}
-=======
                                             {reg.licenseKey || reg.id}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                         </td>
                                         <td className="p-4">
                                             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px] uppercase">
@@ -4211,16 +4016,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                             </span>
                                         </td>
                                         <td className="p-4 text-center">
-<<<<<<< HEAD
-                                            {getStatusBadge(reg.expiresAt)}
-                                        </td>
-                                        <td className="p-4 text-xs">
-                                            <div className="text-slate-700 font-semibold">
-                                                Expires: {new Date(reg.expiresAt).toLocaleDateString()}
-                                            </div>
-                                            <div className="text-slate-400 mt-0.5">
-                                                Activated: {new Date(reg.activatedAt).toLocaleDateString()}
-=======
                                             {getStatusBadge(reg.expiresAt, reg.disabled)}
                                         </td>
                                         <td className="p-4 text-xs">
@@ -4229,7 +4024,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                             </div>
                                             <div className="text-slate-400 mt-0.5">
                                                 Activated: {reg.activatedAt ? new Date(reg.activatedAt).toLocaleDateString() : 'N/A'}
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                             </div>
                                         </td>
                                         <td className="p-4 text-center font-bold text-slate-700">
@@ -4238,8 +4032,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                         <td className="p-4 text-xs text-slate-400">
                                             {new Date(reg.lastPingAt || reg.activatedAt).toLocaleString()}
                                         </td>
-<<<<<<< HEAD
-=======
                                         <td className="p-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
                                                 <button
@@ -4263,7 +4055,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                                 </button>
                                             </div>
                                         </td>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
                                     </tr>
                                 ))}
                             </tbody>
@@ -4271,8 +4062,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                     </div>
                 </div>
             )}
-<<<<<<< HEAD
-=======
 
             {/* Custom Confirmation Modal */}
             <AnimatePresence>
@@ -4348,7 +4137,6 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                     </div>
                 )}
             </AnimatePresence>
->>>>>>> 8aa2197 (feat: Add Ghana VAT features and Invoice UI updates)
         </div>
     );
 }
