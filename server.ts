@@ -136,16 +136,24 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
               const configSnap = await db.collection(`tenant_${safeKey}_settings`).doc("config").get();
               const config = configSnap.exists ? configSnap.data() : {};
               const usersSnap = await col.get();
+              const licType = parts[1] || "1YEAR";
+              const regDoc = await db.collection("registered_customers").doc(licenseKey).get();
+              const regData = regDoc.exists ? regDoc.data() : null;
+              const activatedAt = regData?.activatedAt || new Date().toISOString();
+              const expiresAt = regData?.expiresAt !== undefined && licType !== "3MONTH" && licType !== "6MONTH" && licType !== "TRIAL"
+                ? regData.expiresAt
+                : calculateExpiryDate(licType, new Date(activatedAt));
+
               const payload = {
                 licenseKey,
-                licenseType: parts[1] || "1YEAR",
-                activatedAt: new Date().toISOString(),
-                expiresAt: parts[1] === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+                licenseType: licType,
+                activatedAt,
+                expiresAt,
                 businessName: config.businessName || "Churchis Enterprise",
                 domain: process.env.RENDER_EXTERNAL_URL || "Local Instance",
                 activeUsersCount: usersSnap.size,
                 lastPingAt: new Date().toISOString(),
-                disabled: false
+                disabled: regData?.disabled || false
               };
               await db.collection("registered_customers").doc(licenseKey).set(payload, { merge: true });
             } catch (healErr) {
@@ -662,11 +670,21 @@ async function migrateJsonToFirestore() {
 async function loadLicenseFromFirestore() {
   if (!useFirestore || !db) return;
   try {
+    const deletedKeys = await getDeletedLicenseKeys();
     const docRef = db.collection("settings").doc("license");
     const snapshot = await docRef.get();
     if (snapshot.exists) {
       const lic = snapshot.data();
       if (lic && lic.key) {
+        if (deletedKeys.includes(lic.key)) {
+          console.log(`[License] Deleted license ${lic.key} found in settings/license. Purging.`);
+          await docRef.delete();
+          cachedLicense = null;
+          if (fs.existsSync(LOCAL_LICENSE_FILE)) {
+            try { fs.unlinkSync(LOCAL_LICENSE_FILE); } catch (e) {}
+          }
+          return;
+        }
         console.log(`[License] Loaded active license from Firestore on startup: ${lic.key}`);
         saveLocalLicense(lic);
       }
@@ -676,8 +694,30 @@ async function loadLicenseFromFirestore() {
   }
 }
 
+async function getDeletedLicenseKeys(): Promise<string[]> {
+  try {
+    const doc = await getDocumentData("settings", "deleted_licenses");
+    return (doc && Array.isArray(doc.keys)) ? doc.keys : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function addDeletedLicenseKey(licenseKey: string) {
+  try {
+    const current = await getDeletedLicenseKeys();
+    if (!current.includes(licenseKey)) {
+      current.push(licenseKey);
+      await setDocumentData("settings", "deleted_licenses", { id: "deleted_licenses", keys: current });
+    }
+  } catch (err) {
+    console.error("Error saving deleted license key:", err);
+  }
+}
+
 async function syncAllTenantRegistrations() {
   try {
+    const deletedKeys = await getDeletedLicenseKeys();
     if (useFirestore && db) {
       const collections = await db.listCollections();
       for (const col of collections) {
@@ -689,6 +729,9 @@ async function syncAllTenantRegistrations() {
           if (parts.length === 4 && parts[0] === "GENESYS") {
             licenseKey = parts.join("-");
           }
+          if (deletedKeys.includes(licenseKey)) {
+            continue;
+          }
           const licenseType = parts.length >= 2 ? parts[1] : "1YEAR";
           const usersSnap = await col.get();
           const userCount = usersSnap.size;
@@ -697,16 +740,21 @@ async function syncAllTenantRegistrations() {
           const config = configSnap.exists ? configSnap.data() : {};
           const businessName = config.businessName || "Churchis Enterprise";
 
+          const existingDoc = await db.collection("registered_customers").doc(licenseKey).get();
+          const existingData = existingDoc.exists ? existingDoc.data() : null;
+          const activatedAt = existingData?.activatedAt || new Date().toISOString();
+          const expiresAt = calculateExpiryDate(licenseType, new Date(activatedAt));
+
           const payload = {
             licenseKey,
             licenseType,
-            activatedAt: new Date().toISOString(),
-            expiresAt: licenseType === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+            activatedAt,
+            expiresAt,
             businessName,
             domain: process.env.RENDER_EXTERNAL_URL || "Local Instance",
             activeUsersCount: userCount,
             lastPingAt: new Date().toISOString(),
-            disabled: false
+            disabled: existingData?.disabled || false
           };
           await db.collection("registered_customers").doc(licenseKey).set(payload, { merge: true });
         }
@@ -723,6 +771,9 @@ async function syncAllTenantRegistrations() {
             if (parts.length === 4 && parts[0] === "GENESYS") {
               licenseKey = parts.join("-");
             }
+            if (deletedKeys.includes(licenseKey)) {
+              continue;
+            }
             const licenseType = parts.length >= 2 ? parts[1] : "1YEAR";
             const users = local[key] || [];
             const settingsArr = local[`tenant_${safeKey}_settings`] || [];
@@ -731,16 +782,20 @@ async function syncAllTenantRegistrations() {
 
             local.registered_customers = local.registered_customers || [];
             const existingIdx = local.registered_customers.findIndex((r: any) => r.licenseKey === licenseKey);
+            const existingReg = existingIdx > -1 ? local.registered_customers[existingIdx] : null;
+            const activatedAt = existingReg?.activatedAt || new Date().toISOString();
+            const expiresAt = calculateExpiryDate(licenseType, new Date(activatedAt));
+
             const payload = {
               licenseKey,
               licenseType,
-              activatedAt: new Date().toISOString(),
-              expiresAt: licenseType === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+              activatedAt,
+              expiresAt,
               businessName,
               domain: "Local Instance",
               activeUsersCount: users.length,
               lastPingAt: new Date().toISOString(),
-              disabled: false
+              disabled: existingReg?.disabled || false
             };
             if (existingIdx > -1) {
               local.registered_customers[existingIdx] = { ...local.registered_customers[existingIdx], ...payload };
@@ -792,13 +847,33 @@ function verifyLicense(key: string) {
   return { type, days: daysMap[type] };
 }
 
+function calculateExpiryDate(licenseType: string, fromDate: Date = new Date()): string | null {
+  if (licenseType === "NEVER") return null;
+  const daysMap: Record<string, number> = {
+    TRIAL: 7,
+    "3MONTH": 90,
+    "6MONTH": 180,
+    "1YEAR": 365,
+    "2YEAR": 730,
+  };
+  const days = daysMap[licenseType] || 365;
+  const d = new Date(fromDate);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
 // API Routes
 const CENTRAL_SERVER_URL = process.env.CENTRAL_SERVER_URL || "https://ais-pre-a34tpkltsgfvav6qevdgu4-376793492753.europe-west2.run.app";
 
 async function pingCentralLicenseServer() {
   try {
     const license = getLocalLicense();
-    if (!license) return;
+    if (!license || !license.key) return;
+
+    const deletedKeys = await getDeletedLicenseKeys();
+    if (deletedKeys.includes(license.key)) {
+      return;
+    }
 
     const config = await getConfig();
     const users = await getCollectionData("users");
@@ -1018,11 +1093,14 @@ app.get("/api/central/registrations", async (req, res) => {
     return res.status(403).json({ error: "Unauthorized: Owner only" });
   }
   try {
+    const deletedKeys = await getDeletedLicenseKeys();
     const registrations = await getCollectionData("registered_customers");
-    const sanitized = registrations.map(reg => ({
-      ...reg,
-      licenseKey: reg.licenseKey || reg.id
-    }));
+    const sanitized = registrations
+      .filter(reg => !deletedKeys.includes(reg.licenseKey || reg.id))
+      .map(reg => ({
+        ...reg,
+        licenseKey: reg.licenseKey || reg.id
+      }));
     res.json(sanitized);
   } catch (err: any) {
     console.error("Error retrieving central registrations:", err);
@@ -1059,14 +1137,63 @@ app.delete("/api/central/registrations/:licenseKey", async (req, res) => {
   const { licenseKey } = req.params;
   try {
     console.log(`[Delete Registration] Deleting customer registry document with licenseKey/ID: ${licenseKey}`);
+    await addDeletedLicenseKey(licenseKey);
     await deleteDocumentData("registered_customers", licenseKey);
     
+    // Purge active cached license and local files if matching
+    if (cachedLicense?.key === licenseKey) {
+      cachedLicense = null;
+    }
+    if (fs.existsSync(LOCAL_LICENSE_FILE)) {
+      try {
+        const lic = JSON.parse(fs.readFileSync(LOCAL_LICENSE_FILE, "utf-8"));
+        if (lic?.key === licenseKey) {
+          fs.unlinkSync(LOCAL_LICENSE_FILE);
+        }
+      } catch (e) {}
+    }
+
+    if (useFirestore && db) {
+      const licDoc = await db.collection("settings").doc("license").get();
+      if (licDoc.exists && licDoc.data()?.key === licenseKey) {
+        await db.collection("settings").doc("license").delete();
+      }
+    } else {
+      const local = loadLocalDb();
+      if (local.license?.key === licenseKey) {
+        delete local.license;
+        saveLocalDb();
+      }
+    }
+
     // Clear from user license cache so the system no longer maps users to this key
     for (const [username, cachedKey] of userLicenseCache.entries()) {
       if (cachedKey === licenseKey) {
         userLicenseCache.delete(username);
         console.log(`[Delete Registration] Evicted cache entry for user: ${username}`);
       }
+    }
+
+    // Also clean up any matching tenant collections
+    const safeKey = licenseKey.replace(/[^a-zA-Z0-9]/g, "_");
+    if (useFirestore && db) {
+      const collections = await db.listCollections();
+      for (const col of collections) {
+        if (col.id.startsWith(`tenant_${safeKey}_`)) {
+          const snap = await col.get();
+          for (const doc of snap.docs) {
+            await doc.ref.delete();
+          }
+        }
+      }
+    } else {
+      const local = loadLocalDb();
+      for (const key of Object.keys(local)) {
+        if (key.startsWith(`tenant_${safeKey}_`)) {
+          delete local[key];
+        }
+      }
+      saveLocalDb();
     }
     
     res.json({ success: true });

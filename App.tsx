@@ -147,17 +147,10 @@ export default function App() {
         return;
       }
 
-      const usersRes = await fetch("/api/users");
-      const usersData = await usersRes.json();
-      // If no admin exists (owner is filtered out on server)
-      if (usersData.length === 0) { 
-        setStep("ADMIN_SETUP");
-        return;
-      }
-
       setStep("LOGIN");
     } catch (err) {
       console.error(err);
+      setStep("LOGIN");
     }
   };
 
