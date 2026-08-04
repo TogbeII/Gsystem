@@ -115,6 +115,47 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
           }
         }
       }
+
+      // Fallback: scan all tenant_..._users collections directly in Firestore
+      const collections = await db.listCollections();
+      for (const col of collections) {
+        const match = col.id.match(/^tenant_(.*)_users$/);
+        if (match) {
+          const safeKey = match[1];
+          const userDoc = await col.doc(username).get();
+          if (userDoc.exists) {
+            const parts = safeKey.split("_");
+            let licenseKey = safeKey;
+            if (parts.length === 4 && parts[0] === "GENESYS") {
+              licenseKey = parts.join("-");
+            }
+            userLicenseCache.set(username, licenseKey);
+
+            // Auto-heal registration entry in registered_customers
+            try {
+              const configSnap = await db.collection(`tenant_${safeKey}_settings`).doc("config").get();
+              const config = configSnap.exists ? configSnap.data() : {};
+              const usersSnap = await col.get();
+              const payload = {
+                licenseKey,
+                licenseType: parts[1] || "1YEAR",
+                activatedAt: new Date().toISOString(),
+                expiresAt: parts[1] === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+                businessName: config.businessName || "Churchis Enterprise",
+                domain: process.env.RENDER_EXTERNAL_URL || "Local Instance",
+                activeUsersCount: usersSnap.size,
+                lastPingAt: new Date().toISOString(),
+                disabled: false
+              };
+              await db.collection("registered_customers").doc(licenseKey).set(payload, { merge: true });
+            } catch (healErr) {
+              console.error("Error healing registration in getLicenseKeyForUser:", healErr);
+            }
+
+            return licenseKey;
+          }
+        }
+      }
     } catch (err) {
       console.error("Error finding user tenant in Firestore:", err);
     }
@@ -127,8 +168,13 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
           const match = key.match(/^tenant_(.*)_users$/);
           if (match) {
             const safeKey = match[1];
-            userLicenseCache.set(username, safeKey);
-            return safeKey;
+            const parts = safeKey.split("_");
+            let licenseKey = safeKey;
+            if (parts.length === 4 && parts[0] === "GENESYS") {
+              licenseKey = parts.join("-");
+            }
+            userLicenseCache.set(username, licenseKey);
+            return licenseKey;
           }
         }
       }
@@ -630,12 +676,94 @@ async function loadLicenseFromFirestore() {
   }
 }
 
+async function syncAllTenantRegistrations() {
+  try {
+    if (useFirestore && db) {
+      const collections = await db.listCollections();
+      for (const col of collections) {
+        const match = col.id.match(/^tenant_(.*)_users$/);
+        if (match) {
+          const safeKey = match[1];
+          const parts = safeKey.split("_");
+          let licenseKey = safeKey;
+          if (parts.length === 4 && parts[0] === "GENESYS") {
+            licenseKey = parts.join("-");
+          }
+          const licenseType = parts.length >= 2 ? parts[1] : "1YEAR";
+          const usersSnap = await col.get();
+          const userCount = usersSnap.size;
+
+          const configSnap = await db.collection(`tenant_${safeKey}_settings`).doc("config").get();
+          const config = configSnap.exists ? configSnap.data() : {};
+          const businessName = config.businessName || "Churchis Enterprise";
+
+          const payload = {
+            licenseKey,
+            licenseType,
+            activatedAt: new Date().toISOString(),
+            expiresAt: licenseType === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+            businessName,
+            domain: process.env.RENDER_EXTERNAL_URL || "Local Instance",
+            activeUsersCount: userCount,
+            lastPingAt: new Date().toISOString(),
+            disabled: false
+          };
+          await db.collection("registered_customers").doc(licenseKey).set(payload, { merge: true });
+        }
+      }
+    } else {
+      const local = loadLocalDb();
+      for (const key of Object.keys(local)) {
+        if (key.startsWith("tenant_") && key.endsWith("_users")) {
+          const match = key.match(/^tenant_(.*)_users$/);
+          if (match) {
+            const safeKey = match[1];
+            const parts = safeKey.split("_");
+            let licenseKey = safeKey;
+            if (parts.length === 4 && parts[0] === "GENESYS") {
+              licenseKey = parts.join("-");
+            }
+            const licenseType = parts.length >= 2 ? parts[1] : "1YEAR";
+            const users = local[key] || [];
+            const settingsArr = local[`tenant_${safeKey}_settings`] || [];
+            const configObj = settingsArr.find((s: any) => s.id === "config") || {};
+            const businessName = configObj.businessName || "Churchis Enterprise";
+
+            local.registered_customers = local.registered_customers || [];
+            const existingIdx = local.registered_customers.findIndex((r: any) => r.licenseKey === licenseKey);
+            const payload = {
+              licenseKey,
+              licenseType,
+              activatedAt: new Date().toISOString(),
+              expiresAt: licenseType === "NEVER" ? null : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+              businessName,
+              domain: "Local Instance",
+              activeUsersCount: users.length,
+              lastPingAt: new Date().toISOString(),
+              disabled: false
+            };
+            if (existingIdx > -1) {
+              local.registered_customers[existingIdx] = { ...local.registered_customers[existingIdx], ...payload };
+            } else {
+              local.registered_customers.push(payload);
+            }
+          }
+        }
+      }
+      saveLocalDb();
+    }
+  } catch (err: any) {
+    console.error("[Init] Error in syncAllTenantRegistrations:", err.message);
+  }
+}
+
 // Run initial migration and seeding on server startup
 (async () => {
   await loadLicenseFromFirestore();
   await attemptSelfHealFromRegistry();
   await migrateJsonToFirestore();
   await initializeDatabase();
+  await syncAllTenantRegistrations();
 })();
 
 // License Verification Logic
@@ -671,12 +799,6 @@ async function pingCentralLicenseServer() {
   try {
     const license = getLocalLicense();
     if (!license) return;
-    
-    // Skip central registration for developer and never-expire owner bypass keys
-    if (license.key === "GENESYS-NEVER-A1B2C3D4-A20572B1" || (license.key && license.key.includes("-NEVER-"))) {
-      console.log("[Ping] Skipping central registration for owner/developer bypass key.");
-      return;
-    }
 
     const config = await getConfig();
     const users = await getCollectionData("users");
@@ -695,14 +817,21 @@ async function pingCentralLicenseServer() {
       lastPingAt: new Date().toISOString()
     };
 
-    const myUrl = process.env.RENDER_EXTERNAL_URL || "";
-    const isCentral = myUrl.includes("ais-pre-a34tpkltsgfvav6qevdgu4") || 
-                      myUrl.includes("ais-dev-a34tpkltsgfvav6qevdgu4") || 
-                      (CENTRAL_SERVER_URL && CENTRAL_SERVER_URL.includes(myUrl));
-
-    if (isCentral && useFirestore) {
+    if (useFirestore && db) {
       await setDocumentData("registered_customers", license.key, payload);
     } else {
+      const local = loadLocalDb();
+      local.registered_customers = local.registered_customers || [];
+      const idx = local.registered_customers.findIndex((x: any) => x.licenseKey === license.key);
+      if (idx > -1) {
+        local.registered_customers[idx] = { ...local.registered_customers[idx], ...payload };
+      } else {
+        local.registered_customers.push(payload);
+      }
+      saveLocalDb();
+    }
+
+    if (CENTRAL_SERVER_URL && !CENTRAL_SERVER_URL.includes("localhost")) {
       fetch(`${CENTRAL_SERVER_URL}/api/central/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -959,20 +1088,15 @@ app.post("/api/login", async (req, res) => {
       userLicenseKey = localLic.key;
     }
   } else {
-    // Search across all other registered customers to find the user
+    // Search across all other registered customers or tenant collections to find the user
     if (username !== "genesys_owner") {
       try {
-        const registrations = await getCollectionData("registered_customers");
-        for (const reg of registrations) {
-          if (reg.licenseKey) {
-            const u = await getDocumentDataForTenant("users", username, reg.licenseKey);
-            if (u) {
-              user = u;
-              userLicenseKey = reg.licenseKey;
-              // Pre-populate the userLicenseCache so subsequent calls are fast
-              userLicenseCache.set(username, reg.licenseKey);
-              break;
-            }
+        const foundKey = await getLicenseKeyForUser(username);
+        if (foundKey) {
+          const u = await getDocumentDataForTenant("users", username, foundKey);
+          if (u) {
+            user = u;
+            userLicenseKey = foundKey;
           }
         }
       } catch (err) {
