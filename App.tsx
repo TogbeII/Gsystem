@@ -30,14 +30,22 @@ import {
   RotateCcw,
   Lock,
   Key,
-  Building
+  Building,
+  Scan,
+  ScanLine,
+  Barcode,
+  Volume2,
+  VolumeX,
+  Camera,
+  AlertCircle,
+  CheckCircle2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { exportToPDF, exportToExcel } from "./lib/exportUtils";
 import { User, License, Product, Customer, Sale, UserPermissions } from "./types";
-import { cn, formatCurrency, formatDate, formatCurrencyPDF } from "./lib/utils";
+import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound } from "./lib/utils";
 import InvoiceMenuView from "./components/InvoiceMenuView";
 import { 
   LineChart, 
@@ -899,7 +907,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
         name: "", category: products[0]?.category || "Safety Vests", price: "", 
         shopStock: "", warehouseStock: "", 
         bulkUnitSize: "1", bulkUnitName: "Item", 
-        sku: "", description: "" 
+        sku: "", barcode: "", description: "" 
     });
 
     const [isNewCategory, setIsNewCategory] = useState(false);
@@ -909,12 +917,13 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
         (p.hasShopInventory !== false) && (
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase())) ||
             p.category.toLowerCase().includes(searchTerm.toLowerCase())
         )
     );
 
     const handleExportPDF = () => {
-        const headers = ["Item", "Category", "SKU", "Shop Stock", "Wh Stock", "Price"];
+        const headers = ["Item", "Category", "SKU / Barcode", "Shop Stock", "Wh Stock", "Price"];
         const data = filteredProducts.map(p => {
             const matchingWhItem = products.find(prod => 
                 prod.hasWarehouseInventory && 
@@ -929,7 +938,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                 : (p.warehouseStock * (p.bulkUnitSize || 1)) + ((p as any).warehouseLooseStock || 0);
 
             return [
-                p.name, p.category, p.sku, 
+                p.name, p.category, p.barcode || p.sku, 
                 (p.shopStock || 0).toString(), 
                 whStockVal.toString(), 
                 formatCurrencyPDF(p.price)
@@ -967,7 +976,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                 name: "", category: "Safety Vests", price: "", 
                 shopStock: "", warehouseStock: "", 
                 bulkUnitSize: "1", bulkUnitName: "Item", 
-                sku: "", description: "" 
+                sku: "", barcode: "", description: "" 
             });
         }
     };
@@ -1077,8 +1086,9 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                                                                 warehouseStock: (p.warehouseStock || 0).toString(),
                                                                 bulkUnitSize: (p.bulkUnitSize || 1).toString(),
                                                                 bulkUnitName: p.bulkUnitName || "Item",
-                                                                sku: p.sku, 
-                                                                description: p.description 
+                                                                sku: p.sku || "",
+                                                                barcode: p.barcode || "",
+                                                                description: p.description || "" 
                                                             });
                                                             setShowModal(true);
                                                         }} 
@@ -1257,10 +1267,19 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                                             <input value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl" />
                                         </div>
                                         <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-700">Barcode / UPC / EAN</label>
+                                            <input 
+                                                value={form.barcode} 
+                                                onChange={e => setForm({...form, barcode: e.target.value})} 
+                                                placeholder="Scan or type barcode..." 
+                                                className="w-full p-3 bg-white border border-slate-200 rounded-xl font-mono" 
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
                                             <label className="text-xs font-bold text-slate-700">Price (GH₵)</label>
                                             <input type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl" />
                                         </div>
-                                        <div className="space-y-1">
+                                        <div className="col-span-2 space-y-1">
                                             <label className="text-xs font-bold text-slate-700">Description</label>
                                             <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl" />
                                         </div>
@@ -1374,13 +1393,14 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
         name: "", category: "Safety Vests", price: "", 
         shopStock: "0", warehouseStock: "", 
         bulkUnitSize: "1", bulkUnitName: "Box", 
-        sku: "", description: "" 
+        sku: "", barcode: "", description: "" 
     });
 
     const filteredProducts = products.filter(p => 
         (p.hasWarehouseInventory !== false) && (
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.sku.toLowerCase().includes(searchTerm.toLowerCase())
+            p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase()))
         )
     );
 
@@ -1409,7 +1429,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                 name: "", category: "Safety Vests", price: "", 
                 shopStock: "0", warehouseStock: "", 
                 bulkUnitSize: "1", bulkUnitName: "Box", 
-                sku: "", description: "" 
+                sku: "", barcode: "", description: "" 
             });
             setIsNewCategory(false);
         }
@@ -1624,6 +1644,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                                 bulkUnitSize: (p.bulkUnitSize || 1).toString(),
                                                 bulkUnitName: p.bulkUnitName || "Box",
                                                 sku: p.sku || "",
+                                                barcode: p.barcode || "",
                                                 description: p.description || ""
                                             });
                                             setAddModal(true);
@@ -1828,6 +1849,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                                                             bulkUnitSize: (m.bulkUnitSize || 1).toString(),
                                                                             bulkUnitName: m.bulkUnitName || "Box",
                                                                             sku: m.sku || "",
+                                                                            barcode: m.barcode || "",
                                                                             description: m.description || ""
                                                                         });
                                                                     }}
@@ -1911,6 +1933,15 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold text-slate-700">SKU / ID</label>
                                             <input value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-700">Barcode / UPC / EAN</label>
+                                            <input 
+                                                value={form.barcode} 
+                                                onChange={e => setForm({...form, barcode: e.target.value})} 
+                                                placeholder="Scan or type barcode..." 
+                                                className="w-full p-3 bg-white border border-slate-200 rounded-xl font-mono" 
+                                            />
                                         </div>
                                         <div className="col-span-2 space-y-1">
                                             <label className="text-xs font-bold text-slate-700">Selling Price (GH₵)</label>
@@ -2018,10 +2049,47 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     const [errorMsg, setErrorMsg] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // Barcode Scanning State
+    const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+        return localStorage.getItem("pos_beep_sound") !== "false";
+    });
+    const [scanNotification, setScanNotification] = useState<{
+        id: number;
+        message: string;
+        type: 'success' | 'error' | 'warning';
+        productName?: string;
+        code?: string;
+        price?: number;
+    } | null>(null);
+    const [lastScannedItem, setLastScannedItem] = useState<{
+        name: string;
+        sku?: string;
+        barcode?: string;
+        price: number;
+        timestamp: string;
+    } | null>(null);
+    const [showManualModal, setShowManualModal] = useState(false);
+    const [manualCodeInput, setManualCodeInput] = useState("");
+    const [showCameraModal, setShowCameraModal] = useState(false);
+
+    const scanBufferRef = useRef<string>("");
+    const lastKeystrokeTimeRef = useRef<number>(0);
+    const searchInputRef = useRef<HTMLInputElement>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const cameraIntervalRef = useRef<any>(null);
+
+    const toggleSound = () => {
+        const next = !soundEnabled;
+        setSoundEnabled(next);
+        localStorage.setItem("pos_beep_sound", next ? "true" : "false");
+    };
+
     const filteredProducts = products.filter(p => 
         (p.hasShopInventory !== false) && (
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.sku.toLowerCase().includes(searchTerm.toLowerCase())
+            p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            p.category.toLowerCase().includes(searchTerm.toLowerCase())
         )
     );
 
@@ -2030,12 +2098,257 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
         const existing = cart.find(i => i.id === product.id);
         if (existing) {
             const currentQty = Number(existing.quantity) || 0;
-            if (currentQty >= stock) return;
+            if (currentQty >= stock) {
+                if (soundEnabled) playScanSound('warning');
+                setScanNotification({
+                    id: Date.now(),
+                    message: `Max stock (${stock}) already in cart for "${product.name}"`,
+                    type: 'warning',
+                    productName: product.name
+                });
+                return;
+            }
             setCart(cart.map(i => i.id === product.id ? { ...i, quantity: currentQty + 1 } : i));
         } else {
-            if (stock <= 0) return;
+            if (stock <= 0) {
+                if (soundEnabled) playScanSound('error');
+                setScanNotification({
+                    id: Date.now(),
+                    message: `"${product.name}" is OUT OF STOCK (0 in shop)`,
+                    type: 'error',
+                    productName: product.name
+                });
+                return;
+            }
             setCart([...cart, { ...product, quantity: 1 }]);
         }
+        if (soundEnabled) playScanSound('success');
+    };
+
+    // Central Barcode Processor
+    const handleProcessBarcode = (code: string, source: 'hardware' | 'manual' | 'camera' = 'hardware'): boolean => {
+        const raw = code.trim();
+        if (!raw) return false;
+
+        const shopProducts = products.filter(p => p.hasShopInventory !== false);
+        const lowerRaw = raw.toLowerCase();
+        const cleanDigits = raw.replace(/\D/g, "");
+
+        const matched = shopProducts.find(p => {
+            const pBarcode = p.barcode ? p.barcode.trim().toLowerCase() : "";
+            const pSku = p.sku ? p.sku.trim().toLowerCase() : "";
+            const pId = p.id ? p.id.trim().toLowerCase() : "";
+            const pName = p.name ? p.name.trim().toLowerCase() : "";
+
+            // 1. Exact Barcode or SKU match
+            if (pBarcode && pBarcode === lowerRaw) return true;
+            if (pSku && pSku === lowerRaw) return true;
+            if (pId === lowerRaw) return true;
+            if (pName === lowerRaw) return true;
+
+            // 2. Numeric match (handling barcode formats like UPC/EAN with or without leading zero)
+            if (cleanDigits && cleanDigits.length >= 4) {
+                const pBarcodeDigits = (p.barcode || "").replace(/\D/g, "");
+                const pSkuDigits = (p.sku || "").replace(/\D/g, "");
+                if (pBarcodeDigits && (pBarcodeDigits === cleanDigits || pBarcodeDigits.replace(/^0+/, "") === cleanDigits.replace(/^0+/, ""))) return true;
+                if (pSkuDigits && (pSkuDigits === cleanDigits || pSkuDigits.replace(/^0+/, "") === cleanDigits.replace(/^0+/, ""))) return true;
+            }
+
+            return false;
+        });
+
+        if (matched) {
+            const stock = (matched.shopStock !== undefined ? matched.shopStock : (matched as any).stock) || 0;
+            if (stock <= 0) {
+                if (soundEnabled) playScanSound('error');
+                setScanNotification({
+                    id: Date.now(),
+                    message: `"${matched.name}" is OUT OF SHOP STOCK (Stock: 0)`,
+                    type: 'error',
+                    productName: matched.name,
+                    code: raw
+                });
+                return true;
+            }
+
+            // Check current qty in cart
+            const existing = cart.find(i => i.id === matched.id);
+            const currentQty = existing ? (Number(existing.quantity) || 0) : 0;
+
+            if (currentQty >= stock) {
+                if (soundEnabled) playScanSound('warning');
+                setScanNotification({
+                    id: Date.now(),
+                    message: `Max shop stock limit reached for "${matched.name}" (${stock} available)`,
+                    type: 'warning',
+                    productName: matched.name,
+                    code: raw
+                });
+                return true;
+            }
+
+            if (existing) {
+                setCart(prev => prev.map(i => i.id === matched.id ? { ...i, quantity: currentQty + 1 } : i));
+            } else {
+                setCart(prev => [...prev, { ...matched, quantity: 1 }]);
+            }
+
+            if (soundEnabled) playScanSound('success');
+            setScanNotification({
+                id: Date.now(),
+                message: `Scanned: ${matched.name} (+1)`,
+                type: 'success',
+                productName: matched.name,
+                price: matched.price,
+                code: raw
+            });
+
+            setLastScannedItem({
+                name: matched.name,
+                sku: matched.sku,
+                barcode: matched.barcode || matched.sku,
+                price: matched.price,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            });
+
+            // If search box holds this barcode/query, clear it
+            if (searchTerm.trim().toLowerCase() === lowerRaw) {
+                setSearchTerm("");
+            }
+
+            return true;
+        } else {
+            // Only trigger audible warning if this looks like an attempted scan code
+            if (raw.length >= 2) {
+                if (soundEnabled) playScanSound('error');
+                setScanNotification({
+                    id: Date.now(),
+                    message: `Barcode / SKU "${raw}" not found in catalog`,
+                    type: 'error',
+                    code: raw
+                });
+            }
+            return false;
+        }
+    };
+
+    // Global Keydown Listener for Handheld Barcode Scanners
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement | null;
+            const isInputOrTextarea = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+            const isSearchInput = target === searchInputRef.current;
+
+            const now = Date.now();
+            const timeDiff = now - lastKeystrokeTimeRef.current;
+            lastKeystrokeTimeRef.current = now;
+
+            // When Enter is pressed (the barcode scanner termination key)
+            if (e.key === "Enter") {
+                const buffer = scanBufferRef.current.trim();
+                scanBufferRef.current = "";
+
+                if (buffer.length >= 2) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleProcessBarcode(buffer, 'hardware');
+                    return;
+                }
+
+                // If user is focused on the search input and presses Enter
+                if (isSearchInput && searchTerm.trim()) {
+                    e.preventDefault();
+                    const matched = handleProcessBarcode(searchTerm, 'manual');
+                    if (matched) {
+                        setSearchTerm("");
+                    }
+                    return;
+                }
+            }
+
+            // Ignore non-printable modifier keys
+            if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta" || e.key === "CapsLock" || e.key === "Tab") {
+                return;
+            }
+
+            // Single printable character
+            if (e.key.length === 1) {
+                // If interval between keys is long (> 180ms), reset buffer
+                if (timeDiff > 180) {
+                    scanBufferRef.current = e.key;
+                } else {
+                    scanBufferRef.current += e.key;
+                }
+
+                // Fast scanner burst detection when in another input:
+                // Hardware scanners type at < 45ms per character.
+                if (scanBufferRef.current.length >= 4 && timeDiff < 50 && isInputOrTextarea && !isSearchInput) {
+                    // Let scanner buffer collect
+                }
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown, true);
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown, true);
+        };
+    }, [products, cart, soundEnabled, searchTerm]);
+
+    // Auto-dismiss scan toast notification
+    useEffect(() => {
+        if (!scanNotification) return;
+        const timer = setTimeout(() => {
+            setScanNotification(null);
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, [scanNotification]);
+
+    // Camera Scanner Handlers
+    const startCameraScanner = async () => {
+        setShowCameraModal(true);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play();
+            }
+
+            // If modern BarcodeDetector is supported in browser
+            if ('BarcodeDetector' in window) {
+                const barcodeDetector = new (window as any).BarcodeDetector({
+                    formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
+                });
+                cameraIntervalRef.current = setInterval(async () => {
+                    if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+                        try {
+                            const barcodes = await barcodeDetector.detect(videoRef.current);
+                            if (barcodes.length > 0) {
+                                const code = barcodes[0].rawValue;
+                                if (code) {
+                                    handleProcessBarcode(code, 'camera');
+                                    stopCameraScanner();
+                                }
+                            }
+                        } catch (err) {}
+                    }
+                }, 300);
+            }
+        } catch (err) {
+            console.error("Camera access error:", err);
+        }
+    };
+
+    const stopCameraScanner = () => {
+        if (cameraIntervalRef.current) {
+            clearInterval(cameraIntervalRef.current);
+            cameraIntervalRef.current = null;
+        }
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
+        }
+        setShowCameraModal(false);
     };
 
     const total = cart.reduce((acc, i) => acc + (i.price * (Number(i.quantity) || 0)), 0);
@@ -2273,273 +2586,535 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     };
 
     return (
-        <div className="h-full w-full overflow-x-auto overflow-y-hidden custom-scrollbar">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex gap-6 min-h-0 min-w-[950px] lg:min-w-0 pr-1">
-                <div className="flex-1 flex flex-col h-full min-h-0">
-                <div className="flex justify-between items-center mb-4 shrink-0">
-                    <h1 className="text-3xl font-bold text-slate-900">POS</h1>
-                    <div className="relative w-72">
-                        <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-                        <input 
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            placeholder="Search products..." 
-                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/10 outline-none" 
-                        />
-                    </div>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto px-1 min-h-0 pb-2 custom-scrollbar">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {filteredProducts.map(p => (
-                            <button key={p.id} onClick={() => addToCart(p)} className="bg-white p-4 rounded-2xl border border-slate-100 hover:border-blue-200 hover:shadow-lg transition-all text-left group">
-                                <h3 className="font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{p.name}</h3>
-                                <p className="text-[10px] text-slate-400 mb-2 uppercase tracking-tight">{p.category}</p>
-                                <div className="flex justify-between items-center">
-                                    <span className="font-black text-blue-600">{formatCurrency(p.price)}</span>
-                                    <span className={cn(
-                                        "text-[10px] px-2 py-1 rounded-md font-bold",
-                                        (p.shopStock || 0) < 5 ? "bg-red-50 text-red-500" : "bg-slate-50 text-slate-500"
-                                    )}>
-                                        Shop: {p.shopStock || 0}
-                                    </span>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            <div className="w-96 bg-white rounded-[2rem] border border-slate-200 p-6 flex flex-col shadow-sm h-full max-h-full overflow-hidden shrink-0">
-                <h3 className="text-xl font-bold text-slate-800 mb-4 font-sans uppercase tracking-tight shrink-0">Current Sale</h3>
-                
-                <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar min-h-0 flex flex-col">
-                    {/* Cart Items List */}
-                    <div className="space-y-4 mb-4">
-                        {cart.map(i => {
-                            const stock = (i.shopStock !== undefined ? i.shopStock : (i as any).stock) || 0;
-                            return (
-                                <div key={i.id} className="flex flex-col gap-1 border-b border-slate-50 pb-3">
-                                    <div className="flex justify-between items-start">
-                                        <span className="font-bold text-slate-800 text-sm truncate max-w-[180px]" title={i.name}>{i.name}</span>
-                                        <span className="font-bold text-slate-900 text-sm shrink-0">{formatCurrency(i.price * (Number(i.quantity) || 0))}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center mt-1">
-                                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                            <span className="font-medium">Qty:</span>
-                                            <input 
-                                                type="number" 
-                                                min="1"
-                                                max={stock}
-                                                value={i.quantity === 0 || i.quantity === "" ? "" : i.quantity} 
-                                                onChange={e => {
-                                                    const rawVal = e.target.value;
-                                                    if (rawVal === "") {
-                                                        setCart(cart.map(item => item.id === i.id ? { ...item, quantity: "" as any } : item));
-                                                        return;
-                                                    }
-                                                    const num = Number(rawVal);
-                                                    const val = Math.max(0, Math.min(stock, num));
-                                                    setCart(cart.map(item => item.id === i.id ? { ...item, quantity: val } : item));
-                                                }}
-                                                onBlur={() => {
-                                                    const finalQty = Math.max(1, Number(i.quantity) || 1);
-                                                    setCart(cart.map(item => item.id === i.id ? { ...item, quantity: finalQty } : item));
-                                                }}
-                                                className="w-14 p-1 text-center bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold font-mono text-slate-800"
-                                            />
-                                            <span className="text-[10px] text-slate-400">/ stock {stock}</span>
-                                        </div>
-                                        <button 
-                                            type="button"
-                                            onClick={() => setCart(cart.filter(item => item.id !== i.id))}
-                                            className="text-[10px] text-red-500 hover:text-red-700 font-bold uppercase transition-colors"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        {cart.length === 0 && <div className="text-center py-20 text-slate-300">Cart is empty</div>}
-                    </div>
-
-                    {/* Original Spacious Form Controls */}
-                    <div className="space-y-3.5 border-t border-slate-100 pt-4 mt-auto">
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Customer Selection</label>
-                            <select value={selectedCustomer} onChange={e => setSelectedCustomer(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none">
-                                <option value="">Walk-in Customer</option>
-                                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                        </div>
-
-                        {!selectedCustomer && (
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Walk-in Name (Optional)</label>
-                                <input 
-                                    value={customerName}
-                                    onChange={e => setCustomerName(e.target.value)}
-                                    placeholder="Customer Name"
-                                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none"
-                                />
-                            </div>
-                        )}
-
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Payment Type</label>
-                            <div className="grid grid-cols-3 gap-1">
-                                <button type="button" onClick={() => setPaymentType("cash")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "cash" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Cash</button>
-                                <button type="button" onClick={() => setPaymentType("mobile_money")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "mobile_money" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Momo</button>
-                                <button type="button" onClick={() => setPaymentType("credit")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "credit" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Credit</button>
-                            </div>
-                        </div>
-
-                        {paymentType === "credit" && (
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Initial Deposit</label>
-                                <input type="number" placeholder="0.00" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800 text-sm outline-none" />
-                            </div>
-                        )}
-
-                        <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Discount Amount (GH₵)</label>
-                            <input 
-                                type="number" 
-                                placeholder="0.00" 
-                                value={discount} 
-                                onChange={e => setDiscount(e.target.value)} 
-                                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800 font-bold text-sm outline-none" 
-                            />
-                        </div>
-
-                        <div className="pt-3 space-y-1 border-t border-slate-100">
-                            <div className="flex justify-between text-slate-400 text-xs font-semibold">
-                                <span>Subtotal</span>
-                                <span>{formatCurrency(total)}</span>
-                            </div>
-                            {Number(discount) > 0 && (
-                                <div className="flex justify-between text-amber-600 text-xs font-bold">
-                                    <span>Discount</span>
-                                    <span>-{formatCurrency(Number(discount))}</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between text-lg font-black text-slate-900 pt-1 border-t border-slate-50 mt-1">
-                                <span>Total Due</span>
-                                <span>{formatCurrency(Math.max(0, total - (Number(discount) || 0)))}</span>
-                            </div>
-                        </div>
-
-                        {errorMsg && (
-                            <div className="p-2 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-bold text-center animate-pulse">
-                                {errorMsg}
-                            </div>
-                        )}
-
-                        <button type="button" onClick={handleCheckout} className="w-full bg-blue-600 text-white p-3.5 rounded-xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/15 disabled:opacity-50 text-sm cursor-pointer flex items-center justify-center gap-2" disabled={cart.length === 0 || isSubmitting}>
-                            {isSubmitting ? (
-                                <>
-                                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    Processing Checkout...
-                                </>
-                            ) : (
-                                "Checkout & Print"
-                            )}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* Receipt Modal */}
+        <div className="h-full w-full overflow-x-auto overflow-y-hidden custom-scrollbar relative">
+            {/* Real-time Scan Feedback Toast Notification */}
             <AnimatePresence>
-                {showReceipt && lastSale && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[110] flex items-center justify-center p-6 overflow-y-auto">
-                        <motion.div 
-                            initial={{ scale: 0.9, opacity: 0 }} 
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl space-y-8 print:shadow-none print:p-0"
-                        >
-                            <div className="text-center space-y-2 border-b border-slate-100 pb-8">
-                                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl mx-auto flex items-center justify-center mb-4 font-black text-xl">
-                                    {businessName ? businessName.slice(0, 2).toUpperCase() : <Check size={32} />}
-                                </div>
-                                <h1 className="text-2xl font-black text-slate-800 tracking-tight">{businessName || "Genesys Retail"}</h1>
-                                <h2 className="text-lg font-bold text-green-600">Sale Confirmed!</h2>
-                                <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Transaction Receipt</p>
+                {scanNotification && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                        className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] max-w-md w-full px-4 pointer-events-none"
+                    >
+                        <div className={cn(
+                            "p-3.5 rounded-2xl shadow-xl border flex items-center gap-3 backdrop-blur-md",
+                            scanNotification.type === 'success' ? "bg-emerald-900/90 text-white border-emerald-500/30" :
+                            scanNotification.type === 'warning' ? "bg-amber-900/90 text-white border-amber-500/30" :
+                            "bg-rose-900/90 text-white border-rose-500/30"
+                        )}>
+                            <div className={cn(
+                                "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
+                                scanNotification.type === 'success' ? "bg-emerald-500/20 text-emerald-300" :
+                                scanNotification.type === 'warning' ? "bg-amber-500/20 text-amber-300" :
+                                "bg-rose-500/20 text-rose-300"
+                            )}>
+                                {scanNotification.type === 'success' ? <CheckCircle2 size={20} /> :
+                                 scanNotification.type === 'warning' ? <AlertCircle size={20} /> :
+                                 <Barcode size={20} />}
                             </div>
-
-                            <div className="space-y-6 font-mono text-sm bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
-                                <div className="flex justify-between items-center text-slate-400 text-xs border-b border-slate-200 border-dashed pb-4 mb-4">
-                                    <span>ID: {lastSale.id.split('-')[0].toUpperCase()}</span>
-                                    <span>{new Date(lastSale.date).toLocaleString()}</span>
-                                </div>
-
-                                <div className="space-y-3 pb-4 border-b border-slate-200 border-dashed">
-                                    {lastSale.items.map((item: any, idx: number) => (
-                                        <div key={idx} className="flex justify-between items-start gap-4">
-                                            <div className="flex-1">
-                                                <p className="font-bold text-slate-800">{item.name}</p>
-                                                <p className="text-[10px] text-slate-400">{item.quantity} x {formatCurrency(item.price)}</p>
-                                            </div>
-                                            <span className="font-bold text-slate-700">{formatCurrency(item.price * item.quantity)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="space-y-2 pt-2">
-                                    <div className="flex justify-between text-slate-400">
-                                        <span>Subtotal</span>
-                                        <span>{formatCurrency(lastSale.total)}</span>
-                                    </div>
-                                    {lastSale.discount > 0 && (
-                                        <div className="flex justify-between text-amber-600 font-bold">
-                                            <span>Discount</span>
-                                            <span>-{formatCurrency(lastSale.discount)}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between text-lg font-black text-slate-900 pt-2 border-t border-slate-200 border-dashed mt-2">
-                                        <span>TOTAL</span>
-                                        <span>{formatCurrency(Math.max(0, lastSale.total - (lastSale.discount || 0)))}</span>
-                                    </div>
-                                    <div className="flex justify-between text-[10px] text-slate-400 pt-4 font-bold uppercase">
-                                        <span>Method: {lastSale.paymentType}</span>
-                                        <span>Customer: {lastSale.customerName}</span>
-                                    </div>
-                                </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="font-bold text-sm truncate">{scanNotification.message}</div>
+                                {scanNotification.code && (
+                                    <div className="text-[10px] opacity-80 font-mono">Code: {scanNotification.code}</div>
+                                )}
                             </div>
-
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <button 
-                                    onClick={() => setShowReceipt(false)}
-                                    className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors text-sm cursor-pointer"
-                                >
-                                    Dismiss
-                                </button>
-                                <button 
-                                    onClick={handleReceiptPDFDownload}
-                                    className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-600/10 active:scale-95 transition-all flex items-center justify-center gap-2 font-sans text-sm cursor-pointer"
-                                >
-                                    <Download size={16} />
-                                    Download PDF
-                                </button>
-                                <button 
-                                    onClick={handleReceiptPrint}
-                                    className="flex-1 py-3 px-4 rounded-xl bg-slate-950 text-white font-bold hover:bg-black shadow-lg shadow-slate-900/10 active:scale-95 transition-all flex items-center justify-center gap-2 font-sans text-sm cursor-pointer"
-                                >
-                                    <Printer size={16} />
-                                    Print Receipt
-                                </button>
-                            </div>
-                            
-                            <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-tighter">Thank you for shopping with us!</p>
-                        </motion.div>
-                    </div>
+                            {scanNotification.price !== undefined && (
+                                <div className="text-sm font-black font-mono text-emerald-300 shrink-0">
+                                    {formatCurrency(scanNotification.price)}
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
                 )}
             </AnimatePresence>
-        </motion.div>
-    </div>
-);
+
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full flex gap-6 min-h-0 min-w-[950px] lg:min-w-0 pr-1">
+                <div className="flex-1 flex flex-col h-full min-h-0">
+                    <div className="flex flex-wrap justify-between items-center gap-3 mb-4 shrink-0">
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-3xl font-bold text-slate-900">POS</h1>
+                            
+                            {/* Barcode Scanner Global Status Pill */}
+                            <div 
+                                className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full text-xs font-bold" 
+                                title="Hardware barcode scanners can scan anytime on this screen without clicking into an input."
+                            >
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                                <ScanLine size={14} className="text-emerald-600" />
+                                <span className="hidden sm:inline">Scanner:</span> Ready (Global)
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {/* Sound FX Toggle */}
+                            <button
+                                type="button"
+                                onClick={toggleSound}
+                                className={cn(
+                                    "p-2.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer",
+                                    soundEnabled 
+                                        ? "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100" 
+                                        : "bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200"
+                                )}
+                                title={soundEnabled ? "Scan beep sound ON (Click to mute)" : "Scan beep sound MUTED (Click to unmute)"}
+                            >
+                                {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                                <span className="hidden md:inline">{soundEnabled ? "Beep ON" : "Muted"}</span>
+                            </button>
+
+                            {/* Manual Barcode Entry Button */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setManualCodeInput("");
+                                    setShowManualModal(true);
+                                }}
+                                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                title="Manually type or test a barcode / SKU"
+                            >
+                                <Barcode size={15} />
+                                <span className="hidden sm:inline">Manual Barcode</span>
+                            </button>
+
+                            {/* Camera Scan Button */}
+                            <button
+                                type="button"
+                                onClick={startCameraScanner}
+                                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                title="Scan barcode with device camera"
+                            >
+                                <Camera size={15} />
+                                <span className="hidden sm:inline">Camera</span>
+                            </button>
+
+                            {/* Search Box */}
+                            <div className="relative w-64 md:w-72">
+                                <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+                                <input 
+                                    ref={searchInputRef}
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    placeholder="Search name, SKU, or scan..." 
+                                    className="w-full pl-10 pr-8 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/10 outline-none text-sm" 
+                                />
+                                {searchTerm && (
+                                    <button 
+                                        onClick={() => setSearchTerm("")}
+                                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto px-1 min-h-0 pb-2 custom-scrollbar">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {filteredProducts.map(p => (
+                                <button key={p.id} onClick={() => addToCart(p)} className="bg-white p-4 rounded-2xl border border-slate-100 hover:border-blue-200 hover:shadow-lg transition-all text-left group flex flex-col justify-between">
+                                    <div>
+                                        <h3 className="font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{p.name}</h3>
+                                        <div className="flex items-center justify-between mt-0.5 mb-2">
+                                            <p className="text-[10px] text-slate-400 uppercase tracking-tight truncate">{p.category}</p>
+                                            {(p.barcode || p.sku) && (
+                                                <span className="text-[9px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 truncate max-w-[110px]" title={`Barcode/SKU: ${p.barcode || p.sku}`}>
+                                                    #{p.barcode || p.sku}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-between items-center pt-2 border-t border-slate-50">
+                                        <span className="font-black text-blue-600">{formatCurrency(p.price)}</span>
+                                        <span className={cn(
+                                            "text-[10px] px-2 py-1 rounded-md font-bold",
+                                            (p.shopStock || 0) < 5 ? "bg-red-50 text-red-500" : "bg-slate-50 text-slate-500"
+                                        )}>
+                                            Shop: {p.shopStock || 0}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                            {filteredProducts.length === 0 && (
+                                <div className="col-span-full py-16 text-center text-slate-400">
+                                    <Barcode className="mx-auto mb-2 text-slate-300" size={36} />
+                                    <p className="font-bold text-slate-600">No products matching "{searchTerm}"</p>
+                                    <p className="text-xs text-slate-400 mt-1">Scan a barcode or adjust your search filter</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="w-96 bg-white rounded-[2rem] border border-slate-200 p-6 flex flex-col shadow-sm h-full max-h-full overflow-hidden shrink-0">
+                    <div className="flex justify-between items-center mb-4 shrink-0">
+                        <h3 className="text-xl font-bold text-slate-800 font-sans uppercase tracking-tight">Current Sale</h3>
+                        {cart.length > 0 && (
+                            <button 
+                                type="button" 
+                                onClick={() => setCart([])}
+                                className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase transition-colors"
+                            >
+                                Clear Cart
+                            </button>
+                        )}
+                    </div>
+
+                    {lastScannedItem && (
+                        <div className="mb-3 p-2 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between text-xs text-emerald-800 shrink-0">
+                            <div className="flex items-center gap-1.5 truncate">
+                                <ScanLine size={13} className="text-emerald-600 shrink-0" />
+                                <span className="truncate font-medium">Last: <strong className="font-bold">{lastScannedItem.name}</strong></span>
+                            </div>
+                            <span className="text-[10px] text-emerald-600 font-mono font-bold shrink-0">{lastScannedItem.timestamp}</span>
+                        </div>
+                    )}
+                    
+                    <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar min-h-0 flex flex-col">
+                        {/* Cart Items List */}
+                        <div className="space-y-4 mb-4">
+                            {cart.map(i => {
+                                const stock = (i.shopStock !== undefined ? i.shopStock : (i as any).stock) || 0;
+                                return (
+                                    <div key={i.id} className="flex flex-col gap-1 border-b border-slate-50 pb-3">
+                                        <div className="flex justify-between items-start">
+                                            <div className="max-w-[180px]">
+                                                <span className="font-bold text-slate-800 text-sm truncate block" title={i.name}>{i.name}</span>
+                                                {(i.barcode || i.sku) && (
+                                                    <span className="text-[9px] text-slate-400 font-mono">#{i.barcode || i.sku}</span>
+                                                )}
+                                            </div>
+                                            <span className="font-bold text-slate-900 text-sm shrink-0">{formatCurrency(i.price * (Number(i.quantity) || 0))}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center mt-1">
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                                <span className="font-medium">Qty:</span>
+                                                <input 
+                                                    type="number" 
+                                                    min="1"
+                                                    max={stock}
+                                                    value={i.quantity === 0 || i.quantity === "" ? "" : i.quantity} 
+                                                    onChange={e => {
+                                                        const rawVal = e.target.value;
+                                                        if (rawVal === "") {
+                                                            setCart(cart.map(item => item.id === i.id ? { ...item, quantity: "" as any } : item));
+                                                            return;
+                                                        }
+                                                        const num = Number(rawVal);
+                                                        const val = Math.max(0, Math.min(stock, num));
+                                                        setCart(cart.map(item => item.id === i.id ? { ...item, quantity: val } : item));
+                                                    }}
+                                                    onBlur={() => {
+                                                        const finalQty = Math.max(1, Number(i.quantity) || 1);
+                                                        setCart(cart.map(item => item.id === i.id ? { ...item, quantity: finalQty } : item));
+                                                    }}
+                                                    className="w-14 p-1 text-center bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold font-mono text-slate-800"
+                                                />
+                                                <span className="text-[10px] text-slate-400">/ stock {stock}</span>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setCart(cart.filter(item => item.id !== i.id))}
+                                                className="text-[10px] text-red-500 hover:text-red-700 font-bold uppercase transition-colors"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {cart.length === 0 && (
+                                <div className="text-center py-16 text-slate-300 flex flex-col items-center">
+                                    <ScanLine size={32} className="mb-2 text-slate-200" />
+                                    <span>Cart is empty</span>
+                                    <span className="text-[11px] text-slate-400 mt-1">Scan a product barcode or click an item</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Original Spacious Form Controls */}
+                        <div className="space-y-3.5 border-t border-slate-100 pt-4 mt-auto">
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Customer Selection</label>
+                                <select value={selectedCustomer} onChange={e => setSelectedCustomer(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none">
+                                    <option value="">Walk-in Customer</option>
+                                    {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                            </div>
+
+                            {!selectedCustomer && (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Walk-in Name (Optional)</label>
+                                    <input 
+                                        value={customerName}
+                                        onChange={e => setCustomerName(e.target.value)}
+                                        placeholder="Customer Name"
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Payment Type</label>
+                                <div className="grid grid-cols-3 gap-1">
+                                    <button type="button" onClick={() => setPaymentType("cash")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "cash" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Cash</button>
+                                    <button type="button" onClick={() => setPaymentType("mobile_money")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "mobile_money" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Momo</button>
+                                    <button type="button" onClick={() => setPaymentType("credit")} className={cn("p-2 rounded-xl text-xs font-bold border-2 transition-all text-center cursor-pointer", paymentType === "credit" ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400")}>Credit</button>
+                                </div>
+                            </div>
+
+                            {paymentType === "credit" && (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Initial Deposit</label>
+                                    <input type="number" placeholder="0.00" value={amountPaid} onChange={e => setAmountPaid(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800 text-sm outline-none" />
+                                </div>
+                            )}
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Discount Amount (GH₵)</label>
+                                <input 
+                                    type="number" 
+                                    placeholder="0.00" 
+                                    value={discount} 
+                                    onChange={e => setDiscount(e.target.value)} 
+                                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800 font-bold text-sm outline-none" 
+                                />
+                            </div>
+
+                            <div className="pt-3 space-y-1 border-t border-slate-100">
+                                <div className="flex justify-between text-slate-400 text-xs font-semibold">
+                                    <span>Subtotal</span>
+                                    <span>{formatCurrency(total)}</span>
+                                </div>
+                                {Number(discount) > 0 && (
+                                    <div className="flex justify-between text-amber-600 text-xs font-bold">
+                                        <span>Discount</span>
+                                        <span>-{formatCurrency(Number(discount))}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between text-lg font-black text-slate-900 pt-1 border-t border-slate-50 mt-1">
+                                    <span>Total Due</span>
+                                    <span>{formatCurrency(Math.max(0, total - (Number(discount) || 0)))}</span>
+                                </div>
+                            </div>
+
+                            {errorMsg && (
+                                <div className="p-2 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-bold text-center animate-pulse">
+                                    {errorMsg}
+                                </div>
+                            )}
+
+                            <button type="button" onClick={handleCheckout} className="w-full bg-blue-600 text-white p-3.5 rounded-xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/15 disabled:opacity-50 text-sm cursor-pointer flex items-center justify-center gap-2" disabled={cart.length === 0 || isSubmitting}>
+                                {isSubmitting ? (
+                                    <>
+                                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        Processing Checkout...
+                                    </>
+                                ) : (
+                                    "Checkout & Print"
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Manual Barcode / Test Scan Modal */}
+                <AnimatePresence>
+                    {showManualModal && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                            <motion.div 
+                                initial={{ scale: 0.9, opacity: 0 }} 
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4"
+                            >
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                                            <Barcode size={18} />
+                                        </div>
+                                        <h3 className="font-bold text-slate-800 text-base">Manual Barcode Entry</h3>
+                                    </div>
+                                    <button onClick={() => setShowManualModal(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <p className="text-xs text-slate-500">
+                                    Type or paste a barcode/SKU to simulate a scan or manually add a product with a damaged barcode tag.
+                                </p>
+
+                                <form onSubmit={e => {
+                                    e.preventDefault();
+                                    if (manualCodeInput.trim()) {
+                                        const success = handleProcessBarcode(manualCodeInput, 'manual');
+                                        if (success) {
+                                            setManualCodeInput("");
+                                            setShowManualModal(false);
+                                        }
+                                    }
+                                }}>
+                                    <input 
+                                        autoFocus
+                                        value={manualCodeInput}
+                                        onChange={e => setManualCodeInput(e.target.value)}
+                                        placeholder="Enter barcode or SKU..." 
+                                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800 font-bold focus:ring-2 focus:ring-blue-500/20 outline-none mb-3"
+                                    />
+                                    <div className="flex gap-2">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowManualModal(false)}
+                                            className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            disabled={!manualCodeInput.trim()}
+                                            className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                                        >
+                                            <Plus size={14} /> Add to Cart
+                                        </button>
+                                    </div>
+                                </form>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* Camera Barcode Scanner Modal */}
+                <AnimatePresence>
+                    {showCameraModal && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+                            <motion.div 
+                                initial={{ scale: 0.9, opacity: 0 }} 
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="bg-slate-900 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-4 text-white"
+                            >
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <Camera size={20} className="text-blue-400" />
+                                        <h3 className="font-bold text-base">Camera Barcode Scanner</h3>
+                                    </div>
+                                    <button onClick={stopCameraScanner} className="p-1 text-slate-400 hover:text-white rounded-lg">
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex items-center justify-center">
+                                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 border-2 border-emerald-500/50 m-12 rounded-xl pointer-events-none flex items-center justify-center">
+                                        <div className="w-full h-0.5 bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                                    </div>
+                                </div>
+
+                                <p className="text-xs text-slate-400 text-center">
+                                    Point camera at product barcode. Ensure good lighting for fast detection.
+                                </p>
+
+                                <button 
+                                    onClick={stopCameraScanner} 
+                                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold"
+                                >
+                                    Close Camera
+                                </button>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* Receipt Modal */}
+                <AnimatePresence>
+                    {showReceipt && lastSale && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[110] flex items-center justify-center p-6 overflow-y-auto">
+                            <motion.div 
+                                initial={{ scale: 0.9, opacity: 0 }} 
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl space-y-8 print:shadow-none print:p-0"
+                            >
+                                <div className="text-center space-y-2 border-b border-slate-100 pb-8">
+                                    <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl mx-auto flex items-center justify-center mb-4 font-black text-xl">
+                                        {businessName ? businessName.slice(0, 2).toUpperCase() : <Check size={32} />}
+                                    </div>
+                                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">{businessName || "Genesys Retail"}</h1>
+                                    <h2 className="text-lg font-bold text-green-600">Sale Confirmed!</h2>
+                                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Transaction Receipt</p>
+                                </div>
+
+                                <div className="space-y-6 font-mono text-sm bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
+                                    <div className="flex justify-between items-center text-slate-400 text-xs border-b border-slate-200 border-dashed pb-4 mb-4">
+                                        <span>ID: {lastSale.id.split('-')[0].toUpperCase()}</span>
+                                        <span>{new Date(lastSale.date).toLocaleString()}</span>
+                                    </div>
+
+                                    <div className="space-y-3 pb-4 border-b border-slate-200 border-dashed">
+                                        {lastSale.items.map((item: any, idx: number) => (
+                                            <div key={idx} className="flex justify-between items-start gap-4">
+                                                <div className="flex-1">
+                                                    <p className="font-bold text-slate-800">{item.name}</p>
+                                                    <p className="text-[10px] text-slate-400">{item.quantity} x {formatCurrency(item.price)}</p>
+                                                </div>
+                                                <span className="font-bold text-slate-700">{formatCurrency(item.price * item.quantity)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="space-y-2 pt-2">
+                                        <div className="flex justify-between text-slate-400">
+                                            <span>Subtotal</span>
+                                            <span>{formatCurrency(lastSale.total)}</span>
+                                        </div>
+                                        {lastSale.discount > 0 && (
+                                            <div className="flex justify-between text-amber-600 font-bold">
+                                                <span>Discount</span>
+                                                <span>-{formatCurrency(lastSale.discount)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-lg font-black text-slate-900 pt-2 border-t border-slate-200 border-dashed mt-2">
+                                            <span>TOTAL</span>
+                                            <span>{formatCurrency(Math.max(0, lastSale.total - (lastSale.discount || 0)))}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-slate-400 pt-4 font-bold uppercase">
+                                            <span>Method: {lastSale.paymentType}</span>
+                                            <span>Customer: {lastSale.customerName}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <button 
+                                        onClick={() => setShowReceipt(false)}
+                                        className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors text-sm cursor-pointer"
+                                    >
+                                        Dismiss
+                                    </button>
+                                    <button 
+                                        onClick={handleReceiptPDFDownload}
+                                        className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-600/10 active:scale-95 transition-all flex items-center justify-center gap-2 font-sans text-sm cursor-pointer"
+                                    >
+                                        <Download size={16} />
+                                        Download PDF
+                                    </button>
+                                    <button 
+                                        onClick={handleReceiptPrint}
+                                        className="flex-1 py-3 px-4 rounded-xl bg-slate-950 text-white font-bold hover:bg-black shadow-lg shadow-slate-900/10 active:scale-95 transition-all flex items-center justify-center gap-2 font-sans text-sm cursor-pointer"
+                                    >
+                                        <Printer size={16} />
+                                        Print Receipt
+                                    </button>
+                                </div>
+                                
+                                <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-tighter">Thank you for shopping with us!</p>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+            </motion.div>
+        </div>
+    );
 }
 
 function CreditView({ customers, refresh, userPermissions }: { customers: Customer[], refresh: () => void | Promise<void>, userPermissions?: UserPermissions, key?: string }) {

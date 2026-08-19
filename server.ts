@@ -1498,6 +1498,7 @@ app.post("/api/inventory/transfer", async (req, res) => {
       id: crypto.randomUUID(),
       name: p.name,
       sku: p.sku || "",
+      barcode: p.barcode || "",
       price: p.price || 0,
       category: p.category || "Safety Vests",
       description: p.description || "",
