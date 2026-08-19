@@ -19,24 +19,52 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [1/3] Preparing project...
+:: Terminate any running instance of the app so Windows doesn't lock the .exe file
+echo [1/4] Closing any running Genesys POS background instances...
+taskkill /F /IM GenesysPOS_Standalone.exe >nul 2>&1
+taskkill /F /IM GenesysInventory.exe >nul 2>&1
+
+:: Clean old distribution files
+if exist dist (
+    echo Cleaning previous build artifacts...
+    rmdir /s /q dist >nul 2>&1
+)
+
+echo.
+echo [2/4] Verifying and installing dependencies...
 call npm install --no-fund --no-audit
 
 echo.
-echo [2/3] Building application source...
+echo [3/4] Compiling frontend (with Barcode Suite) and backend...
 call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Build failed! Please review the error above.
+    pause
+    exit /b 1
+)
 
 echo.
-echo [3/3] Creating Windows Executable (GenesysPOS_Standalone.exe)...
-echo This may take a moment...
+echo [4/4] Generating standalone Windows Executable (GenesysPOS_Standalone.exe)...
 call npx pkg . --targets node18-win-x64 --output GenesysPOS_Standalone.exe
+if %errorlevel% neq 0 (
+    echo [ERROR] Standalone packaging failed!
+    pause
+    exit /b 1
+)
 
 echo.
 echo ===================================================
-echo   SUCCESS! 
+echo   BUILD COMPLETED SUCCESSFULLY!
 echo ===================================================
-echo Your application is ready: GenesysPOS_Standalone.exe
+echo Standalone App: GenesysPOS_Standalone.exe
+echo Features included:
+echo  - Live Barcode Scanning (USB, Bluetooth, Camera, Manual)
+echo  - Product Barcode Labels & Shelf Tags (Code 128)
+echo  - POS Global Scanner Integration & Sound Feedback
+echo  - Shop & Warehouse Multi-Inventory Engine
 echo.
-echo You can now move this .exe anywhere and run it!
+echo Launching GenesysPOS_Standalone.exe...
+start "" "%~dp0GenesysPOS_Standalone.exe"
 echo.
 pause
+

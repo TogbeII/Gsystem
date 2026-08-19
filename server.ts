@@ -1407,12 +1407,21 @@ app.delete("/api/users/:username", async (req, res) => {
 // Products
 app.get("/api/products", async (req, res) => {
   const products = await getCollectionData("products");
-  res.json(products);
+  const enriched = (products || []).map((p: any) => {
+    if (!p.barcode && p.sku) {
+      p.barcode = p.sku;
+    }
+    return p;
+  });
+  res.json(enriched);
 });
 
 app.post("/api/products", async (req, res) => {
   const product = req.body;
   product.id = crypto.randomUUID();
+  if (!product.barcode && product.sku) {
+    product.barcode = product.sku;
+  }
   // Ensure default values for new structure
   if (product.shopStock === undefined || product.shopStock === "") {
     product.shopStock = 0;

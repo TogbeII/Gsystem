@@ -47,6 +47,8 @@ import { exportToPDF, exportToExcel } from "./lib/exportUtils";
 import { User, License, Product, Customer, Sale, UserPermissions } from "./types";
 import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound } from "./lib/utils";
 import InvoiceMenuView from "./components/InvoiceMenuView";
+import { BarcodeSvg } from "./components/BarcodeView";
+import { BarcodeLabelModal } from "./components/BarcodeLabelModal";
 import { 
   LineChart, 
   Line, 
@@ -902,6 +904,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
     const [searchTerm, setSearchTerm] = useState("");
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
+    const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
     const canDelete = userRole === "admin";
     const [form, setForm] = useState({ 
         name: "", category: products[0]?.category || "Safety Vests", price: "", 
@@ -1051,7 +1054,16 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                                             <div className="font-bold text-slate-800">{p.name}</div>
                                             <div className="text-xs text-slate-400">{p.description}</div>
                                             <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                                                <span className="text-[10px] text-slate-400 font-mono">{p.sku || "No SKU"}</span>
+                                                <span className="text-[10px] text-slate-400 font-mono">SKU: {p.sku || "—"}</span>
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setBarcodeModalProduct(p)}
+                                                    className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                                                    title="Click to preview & print barcode label"
+                                                >
+                                                    <Barcode size={12} className="text-slate-500" />
+                                                    <span>{p.barcode || p.sku || "No Barcode"}</span>
+                                                </button>
                                                 {matchingWhItem && (
                                                     <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-bold bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 uppercase tracking-wide">
                                                         🔗 Mapped to Warehouse ({whStockVal} pcs)
@@ -1274,6 +1286,12 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                                                 placeholder="Scan or type barcode..." 
                                                 className="w-full p-3 bg-white border border-slate-200 rounded-xl font-mono" 
                                             />
+                                            {(form.barcode || form.sku) && (
+                                                <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200 flex flex-col items-center">
+                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Live Barcode Preview</span>
+                                                    <BarcodeSvg value={form.barcode || form.sku} height={34} showText={true} />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold text-slate-700">Price (GH₵)</label>
@@ -1370,6 +1388,12 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Barcode Label & Print Modal */}
+            <BarcodeLabelModal 
+                product={barcodeModalProduct} 
+                onClose={() => setBarcodeModalProduct(null)} 
+            />
         </motion.div>
     );
 }
@@ -1378,6 +1402,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
     const [searchTerm, setSearchTerm] = useState("");
     const [transferModal, setTransferModal] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
+    const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
     const canDelete = userRole === "admin";
     const [addModal, setAddModal] = useState(false);
     const [linkingProduct, setLinkingProduct] = useState<Product | null>(null);
@@ -1563,7 +1588,18 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                             <div className="flex justify-between items-start mb-6 w-full">
                                 <div className="flex-1 min-w-0 pr-2">
                                     <h3 className="font-bold text-slate-800 text-lg group-hover:text-blue-600 transition-colors truncate" title={p.name}>{p.name}</h3>
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{p.sku || "No SKU"}</p>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">SKU: {p.sku || "—"}</span>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setBarcodeModalProduct(p)}
+                                            className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 text-slate-700 px-2 py-0.5 rounded border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                                            title="Click to preview & print barcode label"
+                                        >
+                                            <Barcode size={12} className="text-slate-500" />
+                                            <span>{p.barcode || p.sku || "No Barcode"}</span>
+                                        </button>
+                                    </div>
                                     
                                     <div className="flex flex-wrap gap-1.5 mt-2.5">
                                         {matchingShopItem ? (
@@ -1942,6 +1978,12 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                                                 placeholder="Scan or type barcode..." 
                                                 className="w-full p-3 bg-white border border-slate-200 rounded-xl font-mono" 
                                             />
+                                            {(form.barcode || form.sku) && (
+                                                <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200 flex flex-col items-center">
+                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Live Barcode Preview</span>
+                                                    <BarcodeSvg value={form.barcode || form.sku} height={34} showText={true} />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="col-span-2 space-y-1">
                                             <label className="text-xs font-bold text-slate-700">Selling Price (GH₵)</label>
@@ -2032,6 +2074,12 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions }
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Barcode Label & Print Modal */}
+            <BarcodeLabelModal 
+                product={barcodeModalProduct} 
+                onClose={() => setBarcodeModalProduct(null)} 
+            />
         </motion.div>
     );
 }
@@ -2717,11 +2765,10 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                         <h3 className="font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{p.name}</h3>
                                         <div className="flex items-center justify-between mt-0.5 mb-2">
                                             <p className="text-[10px] text-slate-400 uppercase tracking-tight truncate">{p.category}</p>
-                                            {(p.barcode || p.sku) && (
-                                                <span className="text-[9px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 truncate max-w-[110px]" title={`Barcode/SKU: ${p.barcode || p.sku}`}>
-                                                    #{p.barcode || p.sku}
-                                                </span>
-                                            )}
+                                            <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 truncate max-w-[110px] flex items-center gap-1" title={`Barcode / SKU: ${p.barcode || p.sku || p.id.slice(0, 8).toUpperCase()}`}>
+                                                <Barcode size={10} className="text-slate-400 shrink-0" />
+                                                #{p.barcode || p.sku || p.id.slice(0, 8).toUpperCase()}
+                                            </span>
                                         </div>
                                     </div>
                                     <div className="flex justify-between items-center pt-2 border-t border-slate-50">
@@ -2780,9 +2827,7 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                         <div className="flex justify-between items-start">
                                             <div className="max-w-[180px]">
                                                 <span className="font-bold text-slate-800 text-sm truncate block" title={i.name}>{i.name}</span>
-                                                {(i.barcode || i.sku) && (
-                                                    <span className="text-[9px] text-slate-400 font-mono">#{i.barcode || i.sku}</span>
-                                                )}
+                                                <span className="text-[9px] text-slate-400 font-mono">#{i.barcode || i.sku || i.id.slice(0, 8).toUpperCase()}</span>
                                             </div>
                                             <span className="font-bold text-slate-900 text-sm shrink-0">{formatCurrency(i.price * (Number(i.quantity) || 0))}</span>
                                         </div>
@@ -3081,6 +3126,11 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                             <span>Method: {lastSale.paymentType}</span>
                                             <span>Customer: {lastSale.customerName}</span>
                                         </div>
+                                    </div>
+
+                                    {/* Receipt Barcode */}
+                                    <div className="pt-2 flex flex-col items-center justify-center border-t border-slate-200 border-dashed">
+                                        <BarcodeSvg value={lastSale.id.split('-')[0].toUpperCase()} height={32} showText={true} />
                                     </div>
                                 </div>
 
