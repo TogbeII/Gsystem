@@ -110,15 +110,10 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
       format: "a4",
     });
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("GENESYS PRODUCT BARCODE LABEL", 105, 18, { align: "center" });
+    const labelsPerPage = 12;
+    const totalPages = Math.ceil(printCount / labelsPerPage) || 1;
+    let labelIndex = 0;
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 105, 24, { align: "center" });
-
-    // Draw 3x4 grid of labels on A4
     const cols = 3;
     const rows = 4;
     const labelWidth = 60;
@@ -128,52 +123,73 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
     const gapX = 5;
     const gapY = 8;
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = startX + c * (labelWidth + gapX);
-        const y = startY + r * (labelHeight + gapY);
+    for (let page = 0; page < totalPages; page++) {
+      if (page > 0) {
+        doc.addPage();
+      }
 
-        // Border
-        doc.setDrawColor(200, 200, 200);
-        doc.roundedRect(x, y, labelWidth, labelHeight, 2, 2);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(15);
+      doc.setTextColor(15, 23, 42);
+      doc.text("GENESYS PRODUCT BARCODE LABELS", 105, 16, { align: "center" });
 
-        // Header
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
-        doc.setTextColor(100, 100, 100);
-        doc.text("GENESYS INVENTORY", x + labelWidth / 2, y + 6, { align: "center" });
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Product: ${product.name} | Total Labels: ${printCount} (Page ${page + 1} of ${totalPages})`, 105, 22, { align: "center" });
 
-        // Item Name
-        doc.setFontSize(8);
-        doc.setTextColor(20, 20, 20);
-        const truncatedName = product.name.length > 22 ? product.name.slice(0, 22) + "..." : product.name;
-        doc.text(truncatedName, x + labelWidth / 2, y + 12, { align: "center" });
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (labelIndex >= printCount) break;
 
-        // Price
-        doc.setFontSize(11);
-        doc.setTextColor(37, 99, 235);
-        doc.text(`GH₵ ${Number(product.price).toFixed(2)}`, x + labelWidth / 2, y + 19, { align: "center" });
+          const x = startX + c * (labelWidth + gapX);
+          const y = startY + r * (labelHeight + gapY);
 
-        // Barcode Value Box
-        doc.setFillColor(245, 247, 250);
-        doc.rect(x + 5, y + 23, labelWidth - 10, 14, "F");
-        doc.setFont("courier", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text(`||| ${barcodeValue} |||`, x + labelWidth / 2, y + 30, { align: "center" });
-        doc.setFontSize(7);
-        doc.setFont("courier", "normal");
-        doc.text(barcodeValue, x + labelWidth / 2, y + 35, { align: "center" });
+          // Border
+          doc.setDrawColor(203, 213, 225);
+          doc.roundedRect(x, y, labelWidth, labelHeight, 2, 2);
 
-        // Footer category
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(6);
-        doc.setTextColor(140, 140, 140);
-        doc.text(product.category, x + labelWidth / 2, y + 41, { align: "center" });
+          // Header
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7);
+          doc.setTextColor(100, 116, 139);
+          doc.text("GENESYS INVENTORY", x + labelWidth / 2, y + 6, { align: "center" });
+
+          // Item Name
+          doc.setFontSize(8);
+          doc.setTextColor(15, 23, 42);
+          const truncatedName = product.name.length > 22 ? product.name.slice(0, 22) + "..." : product.name;
+          doc.text(truncatedName, x + labelWidth / 2, y + 12, { align: "center" });
+
+          // Price
+          doc.setFontSize(11);
+          doc.setTextColor(37, 99, 235);
+          doc.text(`GH₵ ${Number(product.price).toFixed(2)}`, x + labelWidth / 2, y + 19, { align: "center" });
+
+          // Barcode Value Box
+          doc.setFillColor(248, 250, 252);
+          doc.rect(x + 4, y + 22, labelWidth - 8, 15, "F");
+          doc.setFont("courier", "bold");
+          doc.setFontSize(9.5);
+          doc.setTextColor(15, 23, 42);
+          doc.text(`||| ${barcodeValue} |||`, x + labelWidth / 2, y + 29, { align: "center" });
+          doc.setFontSize(7);
+          doc.setFont("courier", "normal");
+          doc.text(barcodeValue, x + labelWidth / 2, y + 34, { align: "center" });
+
+          // Footer category
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(6.5);
+          doc.setTextColor(140, 140, 140);
+          doc.text(`${product.category} | SKU: ${product.sku || "N/A"}`, x + labelWidth / 2, y + 41, { align: "center" });
+
+          labelIndex++;
+        }
+        if (labelIndex >= printCount) break;
       }
     }
 
-    doc.save(`barcode_labels_${product.sku || "product"}.pdf`);
+    doc.save(`barcode_labels_${product.sku || "product"}_${printCount}x.pdf`);
   };
 
   return (
@@ -235,22 +251,39 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
 
           {/* Controls */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span className="text-xs font-bold text-slate-700">Copies to print:</span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Number of Label Stickers:</span>
+                <span className="text-[11px] text-slate-400">Print as many as you need to stick onto stock items</span>
+              </div>
               <div className="flex items-center gap-2">
-                {[1, 4, 12].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setPrintCount(num)}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                      printCount === num
-                        ? "bg-blue-600 text-white shadow-sm"
-                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                    }`}
-                  >
-                    {num} {num === 1 ? "Label" : "Labels"}
-                  </button>
-                ))}
+                <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <input
+                    type="number"
+                    min="1"
+                    max="500"
+                    value={printCount}
+                    onChange={(e) => setPrintCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-16 px-2.5 py-1.5 text-center text-xs font-bold font-mono text-slate-800 focus:outline-none focus:bg-blue-50"
+                  />
+                  <span className="text-[11px] font-bold text-slate-400 pr-2.5">pcs</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {[1, 5, 12, 24, 48].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setPrintCount(num)}
+                      className={`px-2 py-1 text-[11px] font-bold rounded-lg transition-all ${
+                        printCount === num
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
