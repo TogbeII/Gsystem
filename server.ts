@@ -11,8 +11,8 @@ import { AsyncLocalStorage } from "async_hooks";
 const tenantStorage = new AsyncLocalStorage<{ username?: string; licenseKey?: string }>();
 
 // Safe ES Module and CommonJS compatibility for __filename and __dirname
-const _filename = typeof __filename !== "undefined" ? __filename : fileURLToPath(import.meta.url);
-const _dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(_filename);
+const _filename = typeof __filename !== "undefined" ? __filename : (typeof import.meta !== "undefined" && (import.meta as any).url ? fileURLToPath((import.meta as any).url) : "");
+const _dirname = typeof __dirname !== "undefined" ? __dirname : (_filename ? path.dirname(_filename) : process.cwd());
 
 const app = express();
 const PORT = process.env.APPLET_ID ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
@@ -1978,17 +1978,30 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production, serve from the same directory as the script or robustly find 'dist'
-    let distPath = path.resolve(_dirname);
-    if (!fs.existsSync(path.join(distPath, "index.html")) && fs.existsSync(path.join(distPath, "dist", "index.html"))) {
-      distPath = path.join(distPath, "dist");
-    }
+    // In production, robustly resolve candidate directories for index.html
+    const candidatePaths = [
+      _dirname,
+      path.join(_dirname, "dist"),
+      path.join(process.cwd(), "dist"),
+      process.cwd()
+    ];
+    let distPath = candidatePaths.find(p => fs.existsSync(path.join(p, "index.html"))) || _dirname;
     
     console.log("Genesys POS - Production Mode");
-    console.log("Snapshot Root:", _dirname);
-    console.log("Serving from:", distPath);
+    console.log("Resolved Dist Path:", distPath);
 
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      etag: false,
+      maxAge: 0,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      }
+    }));
+    
     app.get("*", (req, res) => {
       const indexPath = path.join(distPath, "index.html");
       if (fs.existsSync(indexPath)) {
@@ -1997,15 +2010,15 @@ async function startServer() {
         res.setHeader("Expires", "0");
         res.sendFile(indexPath);
       } else {
-        // Fallback: search assets in snapshot
-        const altPath = path.join(_dirname, "index.html");
-        if (fs.existsSync(altPath)) {
+        // Fallback: search alternative paths
+        const altPath = candidatePaths.map(p => path.join(p, "index.html")).find(p => fs.existsSync(p));
+        if (altPath) {
           res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
           res.setHeader("Pragma", "no-cache");
           res.setHeader("Expires", "0");
           res.sendFile(altPath);
         } else {
-          res.status(404).send(`Application Error: Required files not found in snapshot. Please contact support. (Path: ${indexPath})`);
+          res.status(404).send(`Application Error: Required files not found. (Looked in: ${candidatePaths.join(", ")})`);
         }
       }
     });

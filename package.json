@@ -14,7 +14,7 @@
     "start": "node dist/server.cjs",
     "desktop": "concurrently \"npm run dev\" \"electron .\"",
     "dist:win": "npm run build && electron-builder --win",
-    "pkg:win": "npm run build && pkg dist/server.cjs --targets node18-win-x64 --output GenesysInventory.exe",
+    "pkg:win": "npm run build && pkg dist/server.cjs --targets node18-win-x64 --output GenesysPOS_Standalone.exe",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },

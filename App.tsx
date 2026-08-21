@@ -1105,8 +1105,9 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
                                                             setShowModal(true);
                                                         }} 
                                                         className="w-8 h-8 flex items-center justify-center text-blue-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors shadow-sm border border-slate-100"
+                                                        title="Edit Product"
                                                     >
-                                                        <ShieldAlert size={14} className="rotate-180" />
+                                                        <Edit size={14} />
                                                     </button>
                                                 )}
                                                 {canDelete && (
