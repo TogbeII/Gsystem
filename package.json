@@ -40,7 +40,8 @@
   "pkg": {
     "assets": [
       "dist/**/*",
-      "data.json"
+      "data.json",
+      "firebase-applet-config.json"
     ]
   },
   "dependencies": {

@@ -20,8 +20,15 @@ const DATA_FILE = path.join(process.cwd(), "data.json");
 const LICENSE_SECRET = "genesys-super-secret-2026";
 
 // Initialize Firebase Admin SDK for Server-side Firestore operations
-const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+let firebaseConfig: any = { projectId: "ai-studio-43590d27-8ede-4ed4-ad44-170b0fdcc36a" };
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  }
+} catch (e) {
+  console.warn("[Firebase] No config file found, using defaults");
+}
 
 let db: admin.firestore.Firestore | null = null;
 let useFirestore = false;
