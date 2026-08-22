@@ -11,8 +11,8 @@ import { AsyncLocalStorage } from "async_hooks";
 const tenantStorage = new AsyncLocalStorage<{ username?: string; licenseKey?: string }>();
 
 // Safe ES Module and CommonJS compatibility for __filename and __dirname
-const _filename = typeof __filename !== "undefined" ? __filename : (typeof import.meta !== "undefined" && (import.meta as any).url ? fileURLToPath((import.meta as any).url) : "");
-const _dirname = typeof __dirname !== "undefined" ? __dirname : (_filename ? path.dirname(_filename) : process.cwd());
+const _filename = typeof __filename !== "undefined" ? __filename : "";
+const _dirname = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 
 const app = express();
 const PORT = process.env.APPLET_ID ? 3000 : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
@@ -1962,13 +1962,8 @@ app.post("/api/admin/generate-key", (req, res) => {
 
 // Vite middleware
 async function startServer() {
-  const isDev = !((process as any).pkg) && (
-    _filename.endsWith(".ts") ||
-    process.argv.some(arg => arg.endsWith("server.ts"))
-  );
-
-  if (isDev) {
-    // Hide vite from pkg/bundlers using a dynamic import with a variable string
+  if (process.env.NODE_ENV !== "production") {
+    // Vite middleware for development mode
     const viteMod = "vite";
     // @ts-ignore
     const { createServer: createViteServer } = await import(viteMod);
@@ -1978,14 +1973,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production, robustly resolve candidate directories for index.html
-    const candidatePaths = [
-      _dirname,
-      path.join(_dirname, "dist"),
-      path.join(process.cwd(), "dist"),
-      process.cwd()
-    ];
-    let distPath = candidatePaths.find(p => fs.existsSync(path.join(p, "index.html"))) || _dirname;
+    // In production, serve from dist directory
+    const distPath = path.join(process.cwd(), "dist");
     
     console.log("Genesys POS - Production Mode");
     console.log("Resolved Dist Path:", distPath);
@@ -2010,15 +1999,14 @@ async function startServer() {
         res.setHeader("Expires", "0");
         res.sendFile(indexPath);
       } else {
-        // Fallback: search alternative paths
-        const altPath = candidatePaths.map(p => path.join(p, "index.html")).find(p => fs.existsSync(p));
-        if (altPath) {
+        const altPath = path.join(_dirname, "index.html");
+        if (fs.existsSync(altPath)) {
           res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
           res.setHeader("Pragma", "no-cache");
           res.setHeader("Expires", "0");
           res.sendFile(altPath);
         } else {
-          res.status(404).send(`Application Error: Required files not found. (Looked in: ${candidatePaths.join(", ")})`);
+          res.status(404).send(`Application Error: Production build index.html not found at ${indexPath}`);
         }
       }
     });

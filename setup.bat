@@ -45,7 +45,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [4/4] Generating standalone Windows Executable (GenesysPOS_Standalone.exe)...
-call npx pkg dist/server.cjs --targets node18-win-x64 --output GenesysPOS_Standalone.exe
+call npx pkg package.json --targets node18-win-x64 --output GenesysPOS_Standalone.exe
 if %errorlevel% neq 0 (
     echo [ERROR] Standalone packaging failed!
     pause
