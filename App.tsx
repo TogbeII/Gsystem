@@ -426,8 +426,8 @@ export default function App() {
            <AnimatePresence mode="wait">
               {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} />}
               {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
-              {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
-              {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
+              {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
+              {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
               {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
               {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
               {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
@@ -910,7 +910,7 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
     );
 }
 
-function ShopInventoryView({ products, refresh, userRole, userPermissions }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, key?: string }) {
+function ShopInventoryView({ products, refresh, userRole, userPermissions, onNavigate }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, key?: string }) {
     const [showModal, setShowModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -1410,7 +1410,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions }: { p
     );
 }
 
-function WarehouseInventoryView({ products, refresh, userRole, userPermissions }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, key?: string }) {
+function WarehouseInventoryView({ products, refresh, userRole, userPermissions, onNavigate }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, key?: string }) {
     const [searchTerm, setSearchTerm] = useState("");
     const [transferModal, setTransferModal] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);

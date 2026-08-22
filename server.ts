@@ -925,6 +925,20 @@ async function pingCentralLicenseServer() {
   }
 }
 
+// Version & Health check API for deployment diagnostics
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", service: "genesys-sales-inventory", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/version", (req, res) => {
+  res.json({ 
+    version: "1.0.0", 
+    deployment: "production", 
+    features: ["barcode_scanner", "camera_scanner", "label_printer", "hardware_scanner"],
+    buildTime: new Date().toISOString()
+  });
+});
+
 app.post("/api/license/activate", async (req, res) => {
   const { key } = req.body;
   const verified = verifyLicense(key);
@@ -1973,8 +1987,21 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production, serve from dist directory
-    const distPath = path.join(process.cwd(), "dist");
+    // Resilient dist directory resolution for Render, Docker, and local production
+    const possibleDistPaths = [
+      path.join(process.cwd(), "dist"),
+      _dirname,
+      path.join(_dirname, "dist"),
+      path.resolve(process.cwd())
+    ];
+    
+    let distPath = path.join(process.cwd(), "dist");
+    for (const p of possibleDistPaths) {
+      if (fs.existsSync(path.join(p, "index.html"))) {
+        distPath = p;
+        break;
+      }
+    }
     
     console.log("Genesys POS - Production Mode");
     console.log("Resolved Dist Path:", distPath);
