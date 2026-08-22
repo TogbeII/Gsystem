@@ -49,6 +49,8 @@ import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound } from
 import InvoiceMenuView from "./components/InvoiceMenuView";
 import { BarcodeSvg } from "./components/BarcodeView";
 import { BarcodeLabelModal } from "./components/BarcodeLabelModal";
+import BarcodeScannerHubView from "./components/BarcodeScannerHubView";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { 
   LineChart, 
   Line, 
@@ -423,6 +425,7 @@ export default function App() {
         )}>
            <AnimatePresence mode="wait">
               {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} />}
+              {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
               {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} />}
               {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
@@ -788,6 +791,14 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
                     <p className="text-slate-500">Quick overview of your safety business</p>
                 </div>
+                {user?.permissions?.sales.create && (
+                    <button
+                        onClick={() => onNavigate("pos")}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-md shadow-blue-200 cursor-pointer"
+                    >
+                        <ShoppingCart size={16} /> Open POS
+                    </button>
+                )}
             </header>
 
             {/* Tiles */}
@@ -2124,8 +2135,8 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     const scanBufferRef = useRef<string>("");
     const lastKeystrokeTimeRef = useRef<number>(0);
     const searchInputRef = useRef<HTMLInputElement>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const cameraIntervalRef = useRef<any>(null);
+    const posQrScannerRef = useRef<Html5Qrcode | null>(null);
+    const [cameraScannerActive, setCameraScannerActive] = useState(false);
 
     const toggleSound = () => {
         const next = !soundEnabled;
@@ -2353,50 +2364,64 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
     }, [scanNotification]);
 
     // Camera Scanner Handlers
-    const startCameraScanner = async () => {
+    const startCameraScanner = () => {
         setShowCameraModal(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play();
-            }
-
-            // If modern BarcodeDetector is supported in browser
-            if ('BarcodeDetector' in window) {
-                const barcodeDetector = new (window as any).BarcodeDetector({
-                    formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
+        setCameraScannerActive(true);
+        setTimeout(async () => {
+            try {
+                if (posQrScannerRef.current) {
+                    try {
+                        await posQrScannerRef.current.stop();
+                    } catch (e) {}
+                    try {
+                        posQrScannerRef.current.clear();
+                    } catch (e) {}
+                }
+                const scanner = new Html5Qrcode("pos-camera-viewport", {
+                    formatsToSupport: [
+                        Html5QrcodeSupportedFormats.EAN_13,
+                        Html5QrcodeSupportedFormats.EAN_8,
+                        Html5QrcodeSupportedFormats.UPC_A,
+                        Html5QrcodeSupportedFormats.UPC_E,
+                        Html5QrcodeSupportedFormats.CODE_128,
+                        Html5QrcodeSupportedFormats.CODE_39,
+                        Html5QrcodeSupportedFormats.QR_CODE,
+                    ],
+                    verbose: false
                 });
-                cameraIntervalRef.current = setInterval(async () => {
-                    if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
-                        try {
-                            const barcodes = await barcodeDetector.detect(videoRef.current);
-                            if (barcodes.length > 0) {
-                                const code = barcodes[0].rawValue;
-                                if (code) {
-                                    handleProcessBarcode(code, 'camera');
-                                    stopCameraScanner();
-                                }
-                            }
-                        } catch (err) {}
-                    }
-                }, 300);
+                posQrScannerRef.current = scanner;
+                await scanner.start(
+                    { facingMode: "environment" },
+                    {
+                        fps: 15,
+                        qrbox: { width: 280, height: 160 },
+                        aspectRatio: 1.777778
+                    },
+                    (decodedText) => {
+                        if (decodedText) {
+                            handleProcessBarcode(decodedText, 'camera');
+                            stopCameraScanner();
+                        }
+                    },
+                    () => {}
+                );
+            } catch (err) {
+                console.error("Camera access error:", err);
             }
-        } catch (err) {
-            console.error("Camera access error:", err);
-        }
+        }, 150);
     };
 
-    const stopCameraScanner = () => {
-        if (cameraIntervalRef.current) {
-            clearInterval(cameraIntervalRef.current);
-            cameraIntervalRef.current = null;
+    const stopCameraScanner = async () => {
+        if (posQrScannerRef.current) {
+            try {
+                await posQrScannerRef.current.stop();
+            } catch (e) {}
+            try {
+                posQrScannerRef.current.clear();
+            } catch (e) {}
+            posQrScannerRef.current = null;
         }
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-            videoRef.current.srcObject = null;
-        }
+        setCameraScannerActive(false);
         setShowCameraModal(false);
     };
 
@@ -3049,11 +3074,8 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                     </button>
                                 </div>
 
-                                <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex items-center justify-center">
-                                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 border-2 border-emerald-500/50 m-12 rounded-xl pointer-events-none flex items-center justify-center">
-                                        <div className="w-full h-0.5 bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                                    </div>
+                                <div className="relative rounded-2xl overflow-hidden bg-black min-h-[280px] flex items-center justify-center">
+                                    <div id="pos-camera-viewport" className="w-full h-full min-h-[280px]" />
                                 </div>
 
                                 <p className="text-xs text-slate-400 text-center">
