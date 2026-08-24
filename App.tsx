@@ -350,6 +350,7 @@ export default function App() {
 
         <nav className="flex-1 px-4 space-y-2 py-4 overflow-y-auto custom-scrollbar">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={isSidebarCollapsed} />
+          <SidebarItem icon={ScanLine} label="Barcode Studio" active={activeTab === "barcode_scanner"} onClick={() => setActiveTab("barcode_scanner")} collapsed={isSidebarCollapsed} />
           {user?.permissions?.inventory.view && (
             <>
               <SidebarItem icon={Package} label="Shop Inventory" active={activeTab === "shop_inventory"} onClick={() => setActiveTab("shop_inventory")} collapsed={isSidebarCollapsed} />
@@ -786,19 +787,27 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
 
     return (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-            <header className="flex justify-between items-end">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
                     <p className="text-slate-500">Quick overview of your safety business</p>
                 </div>
-                {user?.permissions?.sales.create && (
+                <div className="flex items-center gap-3">
                     <button
-                        onClick={() => onNavigate("pos")}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-md shadow-blue-200 cursor-pointer"
+                        onClick={() => onNavigate("barcode_scanner")}
+                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-xs cursor-pointer"
                     >
-                        <ShoppingCart size={16} /> Open POS
+                        <ScanLine size={16} /> Barcode Studio
                     </button>
-                )}
+                    {user?.permissions?.sales.create && (
+                        <button
+                            onClick={() => onNavigate("pos")}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-md shadow-blue-200 cursor-pointer"
+                        >
+                            <ShoppingCart size={16} /> Open POS
+                        </button>
+                    )}
+                </div>
             </header>
 
             {/* Tiles */}
@@ -1003,6 +1012,16 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                     <p className="text-slate-500">Stock available for immediate sale at the shop</p>
                 </div>
                 <div className="flex gap-3">
+                    {onNavigate && (
+                        <button 
+                            onClick={() => onNavigate("barcode_scanner")} 
+                            title="Barcode Scanner & Labels Studio" 
+                            className="px-3.5 py-2.5 border border-blue-200 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors flex items-center gap-2 text-xs font-bold shadow-xs cursor-pointer"
+                        >
+                            <ScanLine size={16} />
+                            <span className="hidden sm:inline">Barcode Studio</span>
+                        </button>
+                    )}
                     <button onClick={handleExportPDF} title="Download PDF" className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
                         <Download size={20} />
                     </button>
@@ -1533,6 +1552,16 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                     <p className="text-slate-500">Manage bulk stock and movement to shop floor</p>
                 </div>
                 <div className="flex gap-3">
+                    {onNavigate && (
+                        <button 
+                            onClick={() => onNavigate("barcode_scanner")} 
+                            title="Barcode Scanner & Labels Studio" 
+                            className="px-3.5 py-2.5 border border-blue-200 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors flex items-center gap-2 text-xs font-bold shadow-xs cursor-pointer"
+                        >
+                            <ScanLine size={16} />
+                            <span className="hidden sm:inline">Barcode Studio</span>
+                        </button>
+                    )}
                     <button onClick={handleExportPDF} className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
                         <Download size={18} />
                     </button>
