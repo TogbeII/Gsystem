@@ -243,10 +243,14 @@ export default function App() {
 
   const handleLogin = async (credentials: any) => {
     setLoginError(null);
+    const sanitizedCredentials = {
+      username: (credentials.username || "").trim(),
+      password: (credentials.password || "").trim(),
+    };
     const res = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify(sanitizedCredentials),
     });
     const data = await res.json();
     if (res.ok) {
