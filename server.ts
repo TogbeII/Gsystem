@@ -369,15 +369,8 @@ function getCollectionNameForTenant(collectionName: string, licenseKey?: string)
     return "registered_customers";
   }
   
-  // Check the active request user from AsyncLocalStorage context
+  // Check the active request context
   const store = tenantStorage.getStore();
-  const username = store?.username;
-
-  // The genesys_owner has their own completely isolated owner sandbox database partition.
-  // This keeps the system owner's logs, testing products, and central manager view 100% separate from tenant business data.
-  if (username === "genesys_owner") {
-    return `tenant_owner_${collectionName}`;
-  }
   
   if (!licenseKey) {
     if (store && store.licenseKey) {
@@ -441,15 +434,55 @@ async function attemptSelfHealFromRegistry() {
 }
 
 async function getCollectionData(collectionName: string): Promise<any[]> {
+  if (collectionName === "registered_customers") {
+    if (useFirestore && db) {
+      try {
+        const snapshot = await db.collection("registered_customers").get();
+        const list: any[] = [];
+        snapshot.forEach((d) => {
+          list.push({ ...d.data(), id: d.id, licenseKey: d.data().licenseKey || d.id });
+        });
+        return list;
+      } catch (err) {
+        console.error("Error fetching registered_customers from Firestore:", err);
+      }
+    }
+    const local = loadLocalDb();
+    return local.registered_customers || [];
+  }
+
   const finalCollection = getCollectionNameForTenant(collectionName);
   if (useFirestore && db) {
     try {
+      const list: any[] = [];
+      const seenIds = new Set<string>();
+
+      // 1. Fetch from primary target collection
       const colRef = db.collection(finalCollection);
       const snapshot = await colRef.get();
-      const list: any[] = [];
       snapshot.forEach((d) => {
-        list.push({ ...d.data(), id: d.id });
+        const data = d.data();
+        const docId = d.id;
+        const dedupeKey = collectionName === "users" ? (data.username || docId).toLowerCase() : docId;
+        seenIds.add(dedupeKey);
+        list.push({ ...data, id: docId });
       });
+
+      // 2. If finalCollection is partitioned and we need fallback or root data
+      if (finalCollection !== collectionName) {
+        const rootRef = db.collection(collectionName);
+        const rootSnap = await rootRef.get();
+        rootSnap.forEach((d) => {
+          const data = d.data();
+          const docId = d.id;
+          const dedupeKey = collectionName === "users" ? (data.username || docId).toLowerCase() : docId;
+          if (!seenIds.has(dedupeKey)) {
+            seenIds.add(dedupeKey);
+            list.push({ ...data, id: docId });
+          }
+        });
+      }
+
       return list;
     } catch (err) {
       console.error(`Error fetching collection ${finalCollection} from Firestore:`, err);
@@ -463,18 +496,33 @@ async function getCollectionData(collectionName: string): Promise<any[]> {
         id: key
       }));
     }
-    return local[collectionName] || [];
+    const primaryArr = local[finalCollection] || [];
+    const baseArr = (finalCollection !== collectionName ? local[collectionName] : null) || [];
+    
+    const combined = [...primaryArr];
+    const seen = new Set(primaryArr.map((x: any) => collectionName === "users" ? (x.username || "").toLowerCase() : x.id));
+    
+    for (const item of baseArr) {
+      const key = collectionName === "users" ? (item.username || "").toLowerCase() : item.id;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        combined.push(item);
+      }
+    }
+    return combined;
   }
 }
 
 async function setDocumentData(collectionName: string, docId: string, data: any): Promise<void> {
   const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
-  const isGlobalOwnerDoc = collectionName === "users" && docId === "genesys_owner";
-  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  const isGlobalOwnerDoc = collectionName === "users" && docId.toLowerCase() === "genesys_owner";
+  const isRegisteredCustDoc = collectionName === "registered_customers";
+  const finalCollection = (isGlobalLicenseDoc || isRegisteredCustDoc) ? collectionName : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  
   if (useFirestore && db) {
     try {
       const docRef = db.collection(finalCollection).doc(docId);
-      await docRef.set(data);
+      await docRef.set(data, { merge: true });
     } catch (err) {
       console.error(`Error setting document ${finalCollection}/${docId} in Firestore:`, err);
     }
@@ -488,10 +536,10 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
       const array = local[localKey] || [];
       const index = array.findIndex((item: any) => {
         if (collectionName === "users") {
-          return item.username === docId;
+          return (item.username || "").toLowerCase() === docId.toLowerCase();
         }
         if (collectionName === "registered_customers") {
-          return item.licenseKey === docId;
+          return (item.licenseKey || item.id) === docId;
         }
         return item.id === docId;
       });
@@ -499,7 +547,7 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
         array[index] = { ...array[index], ...data };
       } else {
         if (collectionName === "registered_customers") {
-          array.push({ ...data });
+          array.push({ ...data, licenseKey: docId });
         } else {
           array.push({ ...data, id: docId });
         }
@@ -512,12 +560,17 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
 
 async function deleteDocumentData(collectionName: string, docId: string): Promise<void> {
   const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
-  const isGlobalOwnerDoc = collectionName === "users" && docId === "genesys_owner";
-  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  const isGlobalOwnerDoc = collectionName === "users" && docId.toLowerCase() === "genesys_owner";
+  const isRegisteredCustDoc = collectionName === "registered_customers";
+  const finalCollection = (isGlobalLicenseDoc || isRegisteredCustDoc) ? collectionName : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  
   if (useFirestore && db) {
     try {
       const docRef = db.collection(finalCollection).doc(docId);
       await docRef.delete();
+      if (finalCollection !== collectionName) {
+        await db.collection(collectionName).doc(docId).delete().catch(() => {});
+      }
     } catch (err) {
       console.error(`Error deleting document ${finalCollection}/${docId} from Firestore:`, err);
     }
@@ -529,17 +582,28 @@ async function deleteDocumentData(collectionName: string, docId: string): Promis
       }
     } else {
       const localKey = isGlobalOwnerDoc ? "users" : finalCollection;
-      const array = local[localKey] || [];
-      const filtered = array.filter((item: any) => {
-        if (collectionName === "users") {
-          return item.username !== docId;
-        }
-        if (collectionName === "registered_customers") {
-          return item.licenseKey !== docId;
-        }
-        return item.id !== docId;
-      });
-      local[localKey] = filtered;
+      if (local[localKey]) {
+        local[localKey] = local[localKey].filter((item: any) => {
+          if (collectionName === "users") {
+            return (item.username || "").toLowerCase() !== docId.toLowerCase();
+          }
+          if (collectionName === "registered_customers") {
+            return (item.licenseKey || item.id) !== docId;
+          }
+          return item.id !== docId;
+        });
+      }
+      if (localKey !== collectionName && local[collectionName]) {
+        local[collectionName] = local[collectionName].filter((item: any) => {
+          if (collectionName === "users") {
+            return (item.username || "").toLowerCase() !== docId.toLowerCase();
+          }
+          if (collectionName === "registered_customers") {
+            return (item.licenseKey || item.id) !== docId;
+          }
+          return item.id !== docId;
+        });
+      }
     }
     saveLocalDb();
   }
@@ -548,20 +612,43 @@ async function deleteDocumentData(collectionName: string, docId: string): Promis
 async function getDocumentData(collectionName: string, docId: string): Promise<any | null> {
   const isGlobalLicenseDoc = collectionName === "settings" && docId === "license";
   const isGlobalOwnerDoc = collectionName === "users" && docId.toLowerCase() === "genesys_owner";
-  const finalCollection = isGlobalLicenseDoc ? "settings" : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  const isRegisteredCustDoc = collectionName === "registered_customers";
+  const finalCollection = (isGlobalLicenseDoc || isRegisteredCustDoc) ? collectionName : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
+  
   if (useFirestore && db) {
     try {
+      // 1. Direct get in primary collection
       const docRef = db.collection(finalCollection).doc(docId);
       const snapshot = await docRef.get();
       if (snapshot.exists) {
         return snapshot.data();
       }
+
+      // 2. Case-insensitive user lookup in primary collection
       if (collectionName === "users") {
         const snap = await db.collection(finalCollection).get();
         for (const d of snap.docs) {
           const data = d.data();
           if ((data.username || d.id).toLowerCase() === docId.toLowerCase()) {
             return data;
+          }
+        }
+      }
+
+      // 3. Fallback to root collection if finalCollection is different
+      if (finalCollection !== collectionName) {
+        const rootRef = db.collection(collectionName).doc(docId);
+        const rootSnap = await rootRef.get();
+        if (rootSnap.exists) {
+          return rootSnap.data();
+        }
+        if (collectionName === "users") {
+          const rootAllSnap = await db.collection("users").get();
+          for (const d of rootAllSnap.docs) {
+            const data = d.data();
+            if ((data.username || d.id).toLowerCase() === docId.toLowerCase()) {
+              return data;
+            }
           }
         }
       }
@@ -575,16 +662,25 @@ async function getDocumentData(collectionName: string, docId: string): Promise<a
       return local.settings?.[docId] || null;
     } else {
       const localKey = isGlobalOwnerDoc ? "users" : finalCollection;
-      const array = local[localKey] || (localKey.startsWith("tenant_") ? [] : local[collectionName]) || [];
+      const array = local[localKey] || (localKey !== collectionName ? local[collectionName] : null) || [];
       const item = array.find((x: any) => {
         if (collectionName === "users") {
           return (x.username || "").toLowerCase() === docId.toLowerCase();
         }
         if (collectionName === "registered_customers") {
-          return x.licenseKey === docId;
+          return (x.licenseKey || x.id) === docId;
         }
         return x.id === docId;
       });
+      if (!item && localKey !== collectionName && local[collectionName]) {
+        const baseItem = local[collectionName].find((x: any) => {
+          if (collectionName === "users") {
+            return (x.username || "").toLowerCase() === docId.toLowerCase();
+          }
+          return x.id === docId;
+        });
+        return baseItem || null;
+      }
       return item || null;
     }
   }
@@ -1164,57 +1260,81 @@ app.post("/api/central/register", async (req, res) => {
 });
 
 app.get("/api/central/registrations", async (req, res) => {
-  const requestingUser = req.headers["x-user"];
+  const requestingUser = (req.headers["x-user"] || "").toString().toLowerCase().trim();
   if (requestingUser !== "genesys_owner") {
     return res.status(403).json({ error: "Unauthorized: Owner only" });
   }
   try {
     const deletedKeys = await getDeletedLicenseKeys();
-    
-    // Auto-discover and sync any active tenants from database
     const registrationsMap = new Map<string, any>();
     
-    // 1. Get existing registrations from registered_customers
-    const existingRegistrations = await getCollectionData("registered_customers");
-    for (const reg of existingRegistrations) {
-      const key = reg.licenseKey || reg.id;
-      if (key && !deletedKeys.includes(key)) {
-        registrationsMap.set(key, { ...reg, licenseKey: key });
+    // 1. Get existing registrations from registered_customers in Firestore and local database
+    if (useFirestore && db) {
+      try {
+        const snap = await db.collection("registered_customers").get();
+        snap.forEach((doc) => {
+          const data = doc.data();
+          const key = data.licenseKey || doc.id;
+          if (key && !deletedKeys.includes(key)) {
+            registrationsMap.set(key, { ...data, licenseKey: key });
+          }
+        });
+      } catch (err) {
+        console.error("Error fetching registered_customers in registrations endpoint:", err);
+      }
+    }
+    const local = loadLocalDb();
+    if (Array.isArray(local.registered_customers)) {
+      for (const reg of local.registered_customers) {
+        const key = reg.licenseKey || reg.id;
+        if (key && !deletedKeys.includes(key) && !registrationsMap.has(key)) {
+          registrationsMap.set(key, { ...reg, licenseKey: key });
+        }
       }
     }
     
-    // 2. Discover local license
-    const localLic = getLocalLicense();
-    if (localLic && localLic.key && !deletedKeys.includes(localLic.key)) {
-      const safeKey = localLic.key.replace(/[^a-zA-Z0-9]/g, "_");
+    // 2. Discover active license in settings / local file
+    let activeLic = getLocalLicense();
+    if (!activeLic && useFirestore && db) {
+      const docSnap = await db.collection("settings").doc("license").get().catch(() => null);
+      if (docSnap && docSnap.exists) {
+        activeLic = docSnap.data();
+      }
+    }
+    if (!activeLic && local.settings?.license) {
+      activeLic = local.settings.license;
+    }
+
+    if (activeLic && activeLic.key && !deletedKeys.includes(activeLic.key)) {
+      const safeKey = activeLic.key.replace(/[^a-zA-Z0-9]/g, "_");
       let activeUsers = 0;
       if (useFirestore && db) {
         const usersSnap = await db.collection(`tenant_${safeKey}_users`).get().catch(() => null);
-        activeUsers = usersSnap ? usersSnap.size : 0;
+        const rootUsersSnap = await db.collection("users").get().catch(() => null);
+        activeUsers = (usersSnap && !usersSnap.empty) ? usersSnap.size : (rootUsersSnap ? rootUsersSnap.size : 0);
       } else {
-        const local = loadLocalDb();
         const uArr = local[`tenant_${safeKey}_users`] || local.users || [];
         activeUsers = uArr.filter((u: any) => (u.username || "").toLowerCase() !== "genesys_owner").length;
       }
       
       const configDoc = await getDocumentData("settings", "config");
-      const existing = registrationsMap.get(localLic.key);
+      const existing = registrationsMap.get(activeLic.key);
       const entry = {
-        licenseKey: localLic.key,
-        licenseType: localLic.type || "1YEAR",
-        activatedAt: localLic.activatedAt || new Date().toISOString(),
-        expiresAt: localLic.expiresAt,
-        businessName: configDoc?.businessName || existing?.businessName || "Local Customer",
-        domain: process.env.RENDER_EXTERNAL_URL || existing?.domain || "Local Instance",
+        licenseKey: activeLic.key,
+        licenseType: activeLic.type || "1YEAR",
+        activatedAt: activeLic.activatedAt || existing?.activatedAt || new Date().toISOString(),
+        expiresAt: activeLic.expiresAt || existing?.expiresAt || calculateExpiryDate(activeLic.type || "1YEAR"),
+        businessName: configDoc?.businessName || existing?.businessName || "Registered Customer",
+        domain: process.env.RENDER_EXTERNAL_URL || existing?.domain || "Production Instance",
         activeUsersCount: Math.max(activeUsers, existing?.activeUsersCount || 1),
         lastPingAt: new Date().toISOString(),
         disabled: existing?.disabled || false
       };
-      registrationsMap.set(localLic.key, entry);
-      await setDocumentData("registered_customers", localLic.key, entry).catch(() => {});
+      registrationsMap.set(activeLic.key, entry);
+      await setDocumentData("registered_customers", activeLic.key, entry).catch(() => {});
     }
 
-    // 3. Scan Firestore collections for any other tenant_*_users
+    // 3. Scan Firestore collections for any other tenant instances
     if (useFirestore && db) {
       try {
         const collections = await db.listCollections();
@@ -1238,7 +1358,7 @@ app.get("/api/central/registrations", async (req, res) => {
                 licenseType: parts[1] || existing?.licenseType || "1YEAR",
                 activatedAt: existing?.activatedAt || new Date().toISOString(),
                 expiresAt: existing?.expiresAt || calculateExpiryDate(parts[1] || "1YEAR"),
-                businessName: configData?.businessName || existing?.businessName || "Enterprise Customer",
+                businessName: configData?.businessName || existing?.businessName || "Customer Instance",
                 domain: existing?.domain || process.env.RENDER_EXTERNAL_URL || "Cloud Instance",
                 activeUsersCount: usersSnap.size || 1,
                 lastPingAt: new Date().toISOString(),
@@ -1251,6 +1371,36 @@ app.get("/api/central/registrations", async (req, res) => {
         }
       } catch (colErr) {
         console.error("Error scanning collections for registrations:", colErr);
+      }
+    }
+
+    // 4. Scan localDb keys for any tenant instances
+    for (const key of Object.keys(local)) {
+      const match = key.match(/^tenant_(.*)_users$/);
+      if (match && match[1] !== "owner") {
+        const safeKey = match[1];
+        const parts = safeKey.split("_");
+        let licenseKey = safeKey;
+        if (parts.length === 4 && parts[0] === "GENESYS") {
+          licenseKey = parts.join("-");
+        }
+        if (!deletedKeys.includes(licenseKey) && !registrationsMap.has(licenseKey)) {
+          const uList = local[key] || [];
+          const settingsArr = local[`tenant_${safeKey}_settings`] || [];
+          const cfg = settingsArr.find((s: any) => s.id === "config") || {};
+          const entry = {
+            licenseKey,
+            licenseType: parts[1] || "1YEAR",
+            activatedAt: new Date().toISOString(),
+            expiresAt: calculateExpiryDate(parts[1] || "1YEAR"),
+            businessName: cfg.businessName || "Customer Instance",
+            domain: "Local Instance",
+            activeUsersCount: uList.length || 1,
+            lastPingAt: new Date().toISOString(),
+            disabled: false
+          };
+          registrationsMap.set(licenseKey, entry);
+        }
       }
     }
 
