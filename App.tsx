@@ -172,16 +172,20 @@ export default function App() {
   };
 
   const fetchData = async () => {
-    const [p, c, s, r] = await Promise.all([
-      fetch("/api/products").then(res => res.json()),
-      fetch("/api/customers").then(res => res.json()),
-      fetch("/api/sales").then(res => res.json()),
-      fetch("/api/returns").then(res => res.json()).catch(() => []),
-    ]);
-    setProducts(p);
-    setCustomers(c);
-    setSales(s);
-    setReturns(r || []);
+    try {
+      const [p, c, s, r] = await Promise.all([
+        fetch("/api/products").then(res => res.json()).catch(() => []),
+        fetch("/api/customers").then(res => res.json()).catch(() => []),
+        fetch("/api/sales").then(res => res.json()).catch(() => []),
+        fetch("/api/returns").then(res => res.json()).catch(() => []),
+      ]);
+      setProducts(Array.isArray(p) ? p : []);
+      setCustomers(Array.isArray(c) ? c : []);
+      setSales(Array.isArray(s) ? s : []);
+      setReturns(Array.isArray(r) ? r : []);
+    } catch (err) {
+      console.error("fetchData failed:", err);
+    }
   };
 
   useEffect(() => {

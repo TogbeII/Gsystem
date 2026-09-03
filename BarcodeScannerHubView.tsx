@@ -91,7 +91,9 @@ export default function BarcodeScannerHubView({
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = "barcode-camera-reader-viewport";
 
-  const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
+  // Safe products array to guarantee resilience against API delay or errors
+  const safeProducts = Array.isArray(products) ? products : [];
+  const categories = Array.from(new Set(safeProducts.map((p) => p.category).filter(Boolean)));
 
   const toggleSound = () => {
     const next = !soundEnabled;
@@ -170,7 +172,16 @@ export default function BarcodeScannerHubView({
     setCameraError(null);
     setCameraActive(true);
 
+    // Yield control to let React mount and render the container element before Html5Qrcode attaches
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
     try {
+      if (typeof navigator !== "undefined" && !navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Camera access is only available over HTTPS or localhost. If running over network HTTP, please use USB/Bluetooth barcode scanner or access via localhost."
+        );
+      }
+
       if (html5QrCodeRef.current) {
         try {
           await html5QrCodeRef.current.stop();
@@ -240,7 +251,7 @@ export default function BarcodeScannerHubView({
     const lower = clean.toLowerCase();
     const cleanDigits = clean.replace(/\D/g, "");
 
-    const matched = products.find((p) => {
+    const matched = safeProducts.find((p) => {
       const pBarcode = (p.barcode || "").trim().toLowerCase();
       const pSku = (p.sku || "").trim().toLowerCase();
 
@@ -312,7 +323,7 @@ export default function BarcodeScannerHubView({
 
   // Quick Barcode Auto-Generator & Assigner
   const handleAutoAssignBarcode = async (productId: string, customCode?: string) => {
-    const targetProduct = products.find((p) => p.id === productId);
+    const targetProduct = safeProducts.find((p) => p.id === productId);
     if (!targetProduct) return;
 
     // Generate standard 12-digit EAN-style code if not specified
@@ -345,7 +356,7 @@ export default function BarcodeScannerHubView({
   };
 
   // Filter Catalog Products
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = safeProducts.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -360,7 +371,7 @@ export default function BarcodeScannerHubView({
 
   // Bulk Label PDF Generation
   const handleGenerateBulkPDF = () => {
-    const selectedList = products.filter((p) => selectedProductIds.has(p.id));
+    const selectedList = safeProducts.filter((p) => selectedProductIds.has(p.id));
     if (selectedList.length === 0) {
       alert("Please select at least one product to generate barcode labels.");
       return;
@@ -864,7 +875,7 @@ export default function BarcodeScannerHubView({
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
                   >
                     <option value="">-- Choose Product --</option>
-                    {products.map((p) => (
+                    {safeProducts.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.category}) - {p.barcode ? `Current: ${p.barcode}` : "No Barcode"}
                       </option>
