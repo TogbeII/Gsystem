@@ -101,11 +101,15 @@ const Tile = ({ icon: Icon, label, color, onClick, value, sublabel }: any) => (
 );
 
 let activeUsername: string | null = null;
+let activeLicenseKey: string | null = null;
 
 const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const headers = new Headers(init?.headers);
   if (activeUsername && !headers.has("X-User")) {
     headers.set("X-User", activeUsername);
+  }
+  if (activeLicenseKey && !headers.has("X-License-Key")) {
+    headers.set("X-License-Key", activeLicenseKey);
   }
   return window.fetch(input, { ...init, headers });
 };
@@ -125,6 +129,7 @@ export default function App() {
   // Sync component state user to the module-level variable for custom fetch
   useEffect(() => {
     activeUsername = user?.username || null;
+    activeLicenseKey = (user as any)?.tenantLicenseKey || null;
   }, [user]);
 
   // App State
@@ -255,6 +260,7 @@ export default function App() {
     const data = await res.json();
     if (res.ok) {
       activeUsername = data.user.username;
+      activeLicenseKey = data.user.tenantLicenseKey || null;
       setUser(data.user);
       
       try {
@@ -281,6 +287,7 @@ export default function App() {
 
   const handleSignOut = () => {
     activeUsername = null;
+    activeLicenseKey = null;
     setUser(null);
     setStep("LOGIN");
     setActiveTab("dashboard");
