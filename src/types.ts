@@ -33,6 +33,7 @@ export interface Product {
   bulkUnitName: string; // e.g. "Box", "Sack", "Large Item"
   description: string;
   sku: string;
+  barcode?: string;
   hasShopInventory?: boolean;
   hasWarehouseInventory?: boolean;
 }
