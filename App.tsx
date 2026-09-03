@@ -68,6 +68,7 @@ import {
 const SidebarItem = ({ icon: Icon, label, active, onClick, collapsed }: any) => (
   <button
     onClick={onClick}
+    title={label}
     className={cn(
       "flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-200 group",
       active 
@@ -410,6 +411,19 @@ export default function App() {
                 {license?.type === "TRIAL" && (
                     <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter animate-pulse shadow-sm shadow-red-200">Trial Version</span>
                 )}
+                <button
+                  onClick={() => setActiveTab("barcode_scanner")}
+                  className={cn(
+                    "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer",
+                    activeTab === "barcode_scanner"
+                      ? "bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200"
+                      : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+                  )}
+                  title="Open Barcode Studio & Scanner Hub"
+                >
+                  <ScanLine size={14} />
+                  <span>Barcode Studio</span>
+                </button>
             </div>
             
             <div className="flex items-center gap-6">
@@ -792,7 +806,8 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
             if (p.hasWarehouseInventory === false) return false;
             const totalWhUnits = (p.warehouseStock || 0) * (p.bulkUnitSize || 1) + ((p as any).warehouseLooseStock || 0);
             return totalWhUnits < 200;
-        }).length
+        }).length,
+        barcodedProducts: products.filter(p => !!p.barcode).length
     };
 
     const dataTrend = sales.slice(-10).map(s => ({
@@ -826,7 +841,7 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
             </header>
 
             {/* Tiles */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
                 <Tile 
                     icon={ShoppingCart} 
                     label="Today's Revenue" 
@@ -895,6 +910,14 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
                             alert("Access denied. You do not have permission to view Warehouse Inventory.");
                         }
                     }}
+                />
+                <Tile 
+                    icon={ScanLine} 
+                    label="Barcode Studio" 
+                    value={stats.barcodedProducts} 
+                    color="bg-purple-600" 
+                    sublabel={`${products.length - stats.barcodedProducts} missing barcodes`}
+                    onClick={() => onNavigate("barcode_scanner")}
                 />
             </div>
 
