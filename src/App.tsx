@@ -38,7 +38,8 @@ import {
   VolumeX,
   Camera,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  BookOpen
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
@@ -50,6 +51,7 @@ import InvoiceMenuView from "./components/InvoiceMenuView";
 import { BarcodeSvg } from "./components/BarcodeView";
 import { BarcodeLabelModal } from "./components/BarcodeLabelModal";
 import BarcodeScannerHubView from "./components/BarcodeScannerHubView";
+import { UserManualModal } from "./components/UserManualModal";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { 
   LineChart, 
@@ -126,6 +128,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showLicenseReminder, setShowLicenseReminder] = useState(false);
+  const [showUserManual, setShowUserManual] = useState(false);
 
   // Sync component state user to the module-level variable for custom fetch
   useEffect(() => {
@@ -454,7 +457,7 @@ export default function App() {
             activeTab === "pos" ? "overflow-hidden flex flex-col p-6" : "overflow-auto p-8"
         )}>
            <AnimatePresence mode="wait">
-              {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} />}
+              {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} onOpenManual={() => setShowUserManual(true)} />}
               {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
               {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
               {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
@@ -506,6 +509,12 @@ export default function App() {
            </AnimatePresence>
         </main>
       </div>
+
+      <UserManualModal 
+        isOpen={showUserManual} 
+        onClose={() => setShowUserManual(false)} 
+        businessName={config.businessName || "Genesys Retail & Warehouse"}
+      />
     </div>
   );
 }
@@ -788,7 +797,7 @@ function AdminSetup({ onComplete, onBackToLogin }: any) {
 
 // --- Main Views ---
 
-function DashboardView({ products, customers, sales, onNavigate, user }: { products: Product[], customers: Customer[], sales: Sale[], onNavigate: (tab: string) => void, user: User | null, key?: string }) {
+function DashboardView({ products, customers, sales, onNavigate, user, onOpenManual }: { products: Product[], customers: Customer[], sales: Sale[], onNavigate: (tab: string) => void, user: User | null, onOpenManual?: () => void, key?: string }) {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfTomorrow = new Date(startOfToday);
@@ -823,6 +832,13 @@ function DashboardView({ products, customers, sales, onNavigate, user }: { produ
                     <p className="text-slate-500">Quick overview of your safety business</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => onOpenManual?.()}
+                        className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-2xs cursor-pointer"
+                        title="Open Illustrated User Manual & PDF Guide"
+                    >
+                        <BookOpen size={16} className="text-blue-600" /> User Manual (PDF)
+                    </button>
                     <button
                         onClick={() => onNavigate("barcode_scanner")}
                         className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-xs cursor-pointer"
