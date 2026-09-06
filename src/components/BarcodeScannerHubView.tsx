@@ -20,14 +20,15 @@ import {
   ExternalLink,
   Info,
   SlidersHorizontal,
-  X
+  X,
+  Eye
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { Product, User } from "../types";
-import { BarcodeSvg } from "./BarcodeView";
+import { BarcodeSvg, drawBarcodeToJsPdf } from "./BarcodeView";
 import { BarcodeLabelModal } from "./BarcodeLabelModal";
-import { cn, formatCurrency, playScanSound } from "../lib/utils";
+import { cn, formatCurrency, formatCurrencyPDF, playScanSound } from "../lib/utils";
 import jsPDF from "jspdf";
 
 interface BarcodeScannerHubViewProps {
@@ -369,125 +370,143 @@ export default function BarcodeScannerHubView({
     return matchesSearch && matchesCategory && matchesMissing;
   });
 
-  // Bulk Label PDF Generation
-  const handleGenerateBulkPDF = () => {
+  // Bulk Label PDF Generation Helper
+  const createBulkPDFDoc = () => {
     const selectedList = safeProducts.filter((p) => selectedProductIds.has(p.id));
     if (selectedList.length === 0) {
       alert("Please select at least one product to generate barcode labels.");
-      return;
+      return null;
     }
 
-    setBulkGenerating(true);
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
 
-    try {
-      const doc = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
+    const cols = 3;
+    const rows = 5;
+    const labelWidth = 60;
+    const labelHeight = 44;
+    const startX = 12;
+    const startY = 24;
+    const gapX = 6;
+    const gapY = 8;
+    const labelsPerPage = cols * rows;
 
-      const cols = 3;
-      const rows = 5;
-      const labelWidth = 60;
-      const labelHeight = 44;
-      const startX = 12;
-      const startY = 24;
-      const gapX = 6;
-      const gapY = 8;
-      const labelsPerPage = cols * rows;
-
-      // Expand list by labelsPerProduct count
-      const allLabels: Product[] = [];
-      selectedList.forEach((prod) => {
-        for (let i = 0; i < labelsPerProduct; i++) {
-          allLabels.push(prod);
-        }
-      });
-
-      const totalPages = Math.ceil(allLabels.length / labelsPerPage) || 1;
-      let labelIdx = 0;
-
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) doc.addPage();
-
-        // Header
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.setTextColor(15, 23, 42);
-        doc.text("GENESYS PRODUCT BARCODE SHEET", 105, 12, { align: "center" });
-
-        doc.setFontSize(8.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 116, 139);
-        doc.text(
-          `${config.businessName || "Genesys POS"} | Total Labels: ${allLabels.length} (Page ${page + 1} of ${totalPages})`,
-          105,
-          17,
-          { align: "center" }
-        );
-
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            if (labelIdx >= allLabels.length) break;
-
-            const p = allLabels[labelIdx];
-            const codeVal = p.barcode || p.sku || p.id.slice(0, 10).toUpperCase();
-
-            const x = startX + c * (labelWidth + gapX);
-            const y = startY + r * (labelHeight + gapY);
-
-            // Border box
-            doc.setDrawColor(203, 213, 225);
-            doc.roundedRect(x, y, labelWidth, labelHeight, 2, 2);
-
-            // Tag Header
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(7);
-            doc.setTextColor(100, 116, 139);
-            doc.text("GENESYS INVENTORY", x + labelWidth / 2, y + 5.5, { align: "center" });
-
-            // Product Name
-            doc.setFontSize(8);
-            doc.setTextColor(15, 23, 42);
-            const truncated = p.name.length > 24 ? p.name.slice(0, 24) + "..." : p.name;
-            doc.text(truncated, x + labelWidth / 2, y + 11, { align: "center" });
-
-            // Price
-            doc.setFontSize(10.5);
-            doc.setTextColor(37, 99, 235);
-            doc.text(`GH₵ ${Number(p.price).toFixed(2)}`, x + labelWidth / 2, y + 17, { align: "center" });
-
-            // Barcode Display Box
-            doc.setFillColor(248, 250, 252);
-            doc.rect(x + 3, y + 20, labelWidth - 6, 16, "F");
-
-            doc.setFont("courier", "bold");
-            doc.setFontSize(9.5);
-            doc.setTextColor(15, 23, 42);
-            doc.text(`||| ${codeVal} |||`, x + labelWidth / 2, y + 27, { align: "center" });
-
-            doc.setFontSize(7.5);
-            doc.setFont("courier", "normal");
-            doc.text(codeVal, x + labelWidth / 2, y + 32.5, { align: "center" });
-
-            // Category & SKU Footer
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(6.5);
-            doc.setTextColor(140, 140, 140);
-            doc.text(`${p.category} | SKU: ${p.sku || "N/A"}`, x + labelWidth / 2, y + 40, { align: "center" });
-
-            labelIdx++;
-          }
-          if (labelIdx >= allLabels.length) break;
-        }
+    // Expand list by labelsPerProduct count
+    const allLabels: Product[] = [];
+    selectedList.forEach((prod) => {
+      for (let i = 0; i < labelsPerProduct; i++) {
+        allLabels.push(prod);
       }
+    });
 
-      doc.save(`genesys_bulk_barcodes_${selectedList.length}products_${allLabels.length}labels.pdf`);
+    const totalPages = Math.ceil(allLabels.length / labelsPerPage) || 1;
+    let labelIdx = 0;
+
+    for (let page = 0; page < totalPages; page++) {
+      if (page > 0) doc.addPage();
+
+      // Sheet Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text("GENESYS PRODUCT BARCODE SHEET", 105, 12, { align: "center" });
+
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.text(
+        `${config.businessName || "Genesys POS"} | Total Labels: ${allLabels.length} (Page ${page + 1} of ${totalPages})`,
+        105,
+        17,
+        { align: "center" }
+      );
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (labelIdx >= allLabels.length) break;
+
+          const p = allLabels[labelIdx];
+          const codeVal = p.barcode || p.sku || p.id.slice(0, 10).toUpperCase();
+
+          const x = startX + c * (labelWidth + gapX);
+          const y = startY + r * (labelHeight + gapY);
+
+          // Card Outer Border
+          doc.setDrawColor(203, 213, 225);
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(x, y, labelWidth, labelHeight, 2.5, 2.5, "FD");
+
+          // Product Name
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8.5);
+          doc.setTextColor(15, 23, 42);
+          const truncated = p.name.length > 24 ? p.name.slice(0, 24) + "..." : p.name;
+          doc.text(truncated, x + labelWidth / 2, y + 7.5, { align: "center" });
+
+          // Price (formatted reliably without cedi font encoding corruption)
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11);
+          doc.setTextColor(37, 99, 235);
+          doc.text(formatCurrencyPDF(p.price), x + labelWidth / 2, y + 13.5, { align: "center" });
+
+          // Real scannable Code 128 Barcode Display Box (matching system image exactly)
+          drawBarcodeToJsPdf(
+            doc,
+            codeVal,
+            x + 4,
+            y + 16.5,
+            labelWidth - 8,
+            20,
+            {
+              showText: true,
+              textSize: 7.5,
+              drawBackground: true,
+              backgroundColor: [255, 255, 255],
+              borderColor: [226, 232, 240],
+            }
+          );
+
+          // Category & SKU Footer
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(6.5);
+          doc.setTextColor(140, 140, 140);
+          doc.text(`${p.category} | SKU: ${p.sku || "N/A"}`, x + labelWidth / 2, y + 41, { align: "center" });
+
+          labelIdx++;
+        }
+        if (labelIdx >= allLabels.length) break;
+      }
+    }
+
+    return { doc, count: allLabels.length, productCount: selectedList.length };
+  };
+
+  const handleGenerateBulkPDF = () => {
+    setBulkGenerating(true);
+    try {
+      const res = createBulkPDFDoc();
+      if (!res) return;
+      res.doc.save(`genesys_bulk_barcodes_${res.productCount}products_${res.count}labels.pdf`);
     } catch (err) {
       console.error("PDF generation error:", err);
       alert("Failed to generate bulk PDF.");
     } finally {
       setBulkGenerating(false);
+    }
+  };
+
+  const handlePreviewBulkPDF = () => {
+    try {
+      const res = createBulkPDFDoc();
+      if (!res) return;
+      const blobUrl = res.doc.output("bloburl");
+      window.open(blobUrl, "_blank");
+    } catch (err) {
+      console.error("PDF preview error:", err);
+      alert("Failed to preview bulk PDF.");
     }
   };
 
@@ -1117,11 +1136,21 @@ export default function BarcodeScannerHubView({
 
               <button
                 disabled={selectedProductIds.size === 0 || bulkGenerating}
+                onClick={handlePreviewBulkPDF}
+                className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+                title="Preview full A4 PDF sheet in a new tab"
+              >
+                <Eye size={16} className="text-blue-600" />
+                Preview PDF
+              </button>
+
+              <button
+                disabled={selectedProductIds.size === 0 || bulkGenerating}
                 onClick={handleGenerateBulkPDF}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all cursor-pointer"
               >
                 <Printer size={16} />
-                {bulkGenerating ? "Generating PDF..." : `Generate PDF (${selectedProductIds.size * labelsPerProduct} Labels)`}
+                {bulkGenerating ? "Generating PDF..." : `Download PDF (${selectedProductIds.size * labelsPerProduct} Labels)`}
               </button>
             </div>
           </div>

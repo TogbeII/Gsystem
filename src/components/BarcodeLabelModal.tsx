@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { X, Printer, Download, Copy, Check, Barcode } from "lucide-react";
+import { X, Printer, Download, Copy, Check, Barcode, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Product } from "../types";
-import { BarcodeSvg } from "./BarcodeView";
-import { formatCurrency } from "../lib/utils";
+import { BarcodeSvg, drawBarcodeToJsPdf, generateBarcodeSvgString } from "./BarcodeView";
+import { formatCurrency, formatCurrencyPDF } from "../lib/utils";
 import jsPDF from "jspdf";
 
 interface BarcodeLabelModalProps {
@@ -32,40 +32,38 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
+    const barcodeSvgStr = generateBarcodeSvgString(barcodeValue, 36, 1.4, true);
+
     const labelsHtml = Array.from({ length: printCount })
       .map(
         () => `
         <div style="
           width: 58mm; 
-          height: 38mm; 
+          min-height: 38mm; 
           border: 1px dashed #cbd5e1; 
-          padding: 3mm; 
+          padding: 2.5mm 3mm; 
           box-sizing: border-box; 
           display: flex; 
           flex-direction: column; 
           align-items: center; 
           justify-content: space-between; 
-          font-family: sans-serif;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           page-break-inside: avoid;
           background: #fff;
           margin: 2mm;
+          border-radius: 4px;
         ">
-          <div style="font-size: 8pt; font-weight: bold; text-align: center; text-transform: uppercase; color: #334155; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
-            GENESYS INVENTORY
-          </div>
-          <div style="font-size: 9pt; font-weight: 800; text-align: center; color: #0f172a; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <div style="font-size: 9pt; font-weight: 800; text-align: center; color: #0f172a; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 0.5mm;">
             ${product.name}
           </div>
-          <div style="font-size: 11pt; font-weight: 900; color: #2563eb; margin: 1mm 0;">
-            GH₵ ${Number(product.price).toFixed(2)}
+          <div style="font-size: 11pt; font-weight: 900; color: #2563eb; margin: 0.5mm 0;">
+            ${formatCurrency(product.price)}
           </div>
-          <div style="display: flex; flex-direction: column; align-items: center;">
-            <div style="font-family: monospace; font-size: 9pt; font-weight: bold; letter-spacing: 2px; color: #0f172a;">
-              * ${barcodeValue} *
-            </div>
-            <div style="font-size: 7pt; color: #64748b; font-family: monospace; margin-top: 1mm;">
-              ${product.category} | SKU: ${product.sku || "N/A"}
-            </div>
+          <div style="width: 100%; display: flex; justify-content: center; margin: 0.5mm 0; padding: 1.5mm 0; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; box-sizing: border-box;">
+            ${barcodeSvgStr}
+          </div>
+          <div style="font-size: 6.5pt; color: #64748b; font-family: monospace; margin-top: 0.5mm;">
+            ${product.category} | SKU: ${product.sku || "N/A"}
           </div>
         </div>
       `
@@ -85,7 +83,8 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
               flex-wrap: wrap; 
               gap: 2mm; 
               justify-content: flex-start;
-              font-family: sans-serif;
+              font-family: system-ui, -apple-system, sans-serif;
+              background: #f8fafc;
             }
           </style>
         </head>
@@ -103,7 +102,7 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
     printWindow.document.close();
   };
 
-  const handleDownloadPDF = () => {
+  const createProductPDFDoc = () => {
     const doc = new jsPDF({
       orientation: "portrait",
       unit: "mm",
@@ -145,43 +144,46 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
           const x = startX + c * (labelWidth + gapX);
           const y = startY + r * (labelHeight + gapY);
 
-          // Border
+          // Card Outer Border
           doc.setDrawColor(203, 213, 225);
-          doc.roundedRect(x, y, labelWidth, labelHeight, 2, 2);
-
-          // Header
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(7);
-          doc.setTextColor(100, 116, 139);
-          doc.text("GENESYS INVENTORY", x + labelWidth / 2, y + 6, { align: "center" });
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(x, y, labelWidth, labelHeight, 2.5, 2.5, "FD");
 
           // Item Name
-          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8.5);
           doc.setTextColor(15, 23, 42);
           const truncatedName = product.name.length > 22 ? product.name.slice(0, 22) + "..." : product.name;
-          doc.text(truncatedName, x + labelWidth / 2, y + 12, { align: "center" });
+          doc.text(truncatedName, x + labelWidth / 2, y + 7.5, { align: "center" });
 
-          // Price
+          // Price (formatted reliably without cedi font encoding corruption)
+          doc.setFont("helvetica", "bold");
           doc.setFontSize(11);
           doc.setTextColor(37, 99, 235);
-          doc.text(`GH₵ ${Number(product.price).toFixed(2)}`, x + labelWidth / 2, y + 19, { align: "center" });
+          doc.text(formatCurrencyPDF(product.price), x + labelWidth / 2, y + 13.5, { align: "center" });
 
-          // Barcode Value Box
-          doc.setFillColor(248, 250, 252);
-          doc.rect(x + 4, y + 22, labelWidth - 8, 15, "F");
-          doc.setFont("courier", "bold");
-          doc.setFontSize(9.5);
-          doc.setTextColor(15, 23, 42);
-          doc.text(`||| ${barcodeValue} |||`, x + labelWidth / 2, y + 29, { align: "center" });
-          doc.setFontSize(7);
-          doc.setFont("courier", "normal");
-          doc.text(barcodeValue, x + labelWidth / 2, y + 34, { align: "center" });
+          // Real scannable Code 128 Barcode Display Box (matching system image exactly)
+          drawBarcodeToJsPdf(
+            doc,
+            barcodeValue,
+            x + 4,
+            y + 16.5,
+            labelWidth - 8,
+            20,
+            {
+              showText: true,
+              textSize: 7.5,
+              drawBackground: true,
+              backgroundColor: [255, 255, 255],
+              borderColor: [226, 232, 240],
+            }
+          );
 
-          // Footer category
+          // Footer category & SKU
           doc.setFont("helvetica", "normal");
           doc.setFontSize(6.5);
           doc.setTextColor(140, 140, 140);
-          doc.text(`${product.category} | SKU: ${product.sku || "N/A"}`, x + labelWidth / 2, y + 41, { align: "center" });
+          doc.text(`${product.category} | SKU: ${product.sku || "N/A"}`, x + labelWidth / 2, y + 41.5, { align: "center" });
 
           labelIndex++;
         }
@@ -189,7 +191,28 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
       }
     }
 
-    doc.save(`barcode_labels_${product.sku || "product"}_${printCount}x.pdf`);
+    return doc;
+  };
+
+  const handleDownloadPDF = () => {
+    try {
+      const doc = createProductPDFDoc();
+      doc.save(`barcode_labels_${product.sku || "product"}_${printCount}x.pdf`);
+    } catch (err) {
+      console.error("PDF download error:", err);
+      alert("Failed to download PDF barcode sheet.");
+    }
+  };
+
+  const handlePreviewPDF = () => {
+    try {
+      const doc = createProductPDFDoc();
+      const blobUrl = doc.output("bloburl");
+      window.open(blobUrl, "_blank");
+    } catch (err) {
+      console.error("PDF preview error:", err);
+      alert("Failed to preview PDF barcode sheet.");
+    }
   };
 
   return (
@@ -287,28 +310,38 @@ export const BarcodeLabelModal: React.FC<BarcodeLabelModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <button
                 onClick={handleCopy}
-                className="py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                {copied ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />}
+                {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
                 {copied ? "Copied!" : "Copy Code"}
               </button>
 
               <button
-                onClick={handleDownloadPDF}
-                className="py-3 px-4 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                onClick={handlePreviewPDF}
+                className="py-2.5 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                title="Preview full A4 PDF sheet before printing or saving"
               >
-                <Download size={16} />
-                PDF Sheet
+                <Eye size={15} className="text-blue-600" />
+                Preview PDF
+              </button>
+
+              <button
+                onClick={handleDownloadPDF}
+                className="py-2.5 px-3 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="Download printable A4 PDF sheet"
+              >
+                <Download size={15} />
+                Download PDF
               </button>
 
               <button
                 onClick={handlePrint}
-                className="py-3 px-4 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+                className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-slate-900/20 transition-all cursor-pointer"
               >
-                <Printer size={16} />
+                <Printer size={15} />
                 Print ({printCount})
               </button>
             </div>
