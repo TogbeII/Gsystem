@@ -1,6 +1,6 @@
 {
   "name": "Genesys Sales/Inventory System",
-  "description": "A comprehensive sales and inventory management system for safety tools and PPEs, featuring offline support, credit tracking, license key validation, and full barcode scanning & label printing suite.",
+  "description": "A comprehensive sales and inventory management system for safety tools and PPEs, featuring multi-warehouse management, offline support, credit tracking, license key validation, and barcode scanning.",
   "requestFramePermissions": [
     "camera"
   ],

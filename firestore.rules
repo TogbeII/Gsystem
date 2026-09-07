@@ -55,5 +55,10 @@ service cloud.firestore {
     match /invoices/{invoiceId} {
       allow read, write: if isSignedIn() && isValidId(invoiceId);
     }
+
+    // Warehouses Collection Rule
+    match /warehouses/{warehouseId} {
+      allow read, write: if isSignedIn() && isValidId(warehouseId);
+    }
   }
 }

@@ -18,7 +18,7 @@ import {
   X,
   UserPlus,
   ArrowLeftRight,
-  Warehouse,
+  Warehouse as WarehouseIcon,
   FileText,
   Check,
   Edit,
@@ -45,13 +45,15 @@ import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { exportToPDF, exportToExcel } from "./lib/exportUtils";
-import { User, License, Product, Customer, Sale, UserPermissions } from "./types";
+import { User, License, Product, Customer, Sale, UserPermissions, Warehouse } from "./types";
 import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound } from "./lib/utils";
 import InvoiceMenuView from "./components/InvoiceMenuView";
 import { BarcodeSvg } from "./components/BarcodeView";
 import { BarcodeLabelModal } from "./components/BarcodeLabelModal";
 import BarcodeScannerHubView from "./components/BarcodeScannerHubView";
 import { UserManualModal } from "./components/UserManualModal";
+import { WarehouseManagerModal } from "./components/WarehouseManagerModal";
+import { WarehouseSelector } from "./components/WarehouseSelector";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { 
   LineChart, 
@@ -141,6 +143,17 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+
+  const fetchWarehouses = async () => {
+    try {
+      const res = await fetch("/api/warehouses");
+      const data = await res.json();
+      if (Array.isArray(data)) setWarehouses(data);
+    } catch (err) {
+      console.error("fetchWarehouses failed:", err);
+    }
+  };
 
   useEffect(() => {
     checkInitialState();
@@ -177,16 +190,18 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [p, c, s, r] = await Promise.all([
+      const [p, c, s, r, w] = await Promise.all([
         fetch("/api/products").then(res => res.json()).catch(() => []),
         fetch("/api/customers").then(res => res.json()).catch(() => []),
         fetch("/api/sales").then(res => res.json()).catch(() => []),
         fetch("/api/returns").then(res => res.json()).catch(() => []),
+        fetch("/api/warehouses").then(res => res.json()).catch(() => []),
       ]);
       setProducts(Array.isArray(p) ? p : []);
       setCustomers(Array.isArray(c) ? c : []);
       setSales(Array.isArray(s) ? s : []);
       setReturns(Array.isArray(r) ? r : []);
+      setWarehouses(Array.isArray(w) ? w : []);
     } catch (err) {
       console.error("fetchData failed:", err);
     }
@@ -373,7 +388,7 @@ export default function App() {
           {user?.permissions?.inventory.view && (
             <>
               <SidebarItem icon={Package} label="Shop Inventory" active={activeTab === "shop_inventory"} onClick={() => setActiveTab("shop_inventory")} collapsed={isSidebarCollapsed} />
-              <SidebarItem icon={Warehouse} label="Warehouse Stock" active={activeTab === "warehouse_inventory"} onClick={() => setActiveTab("warehouse_inventory")} collapsed={isSidebarCollapsed} />
+              <SidebarItem icon={WarehouseIcon} label="Warehouse Stock" active={activeTab === "warehouse_inventory"} onClick={() => setActiveTab("warehouse_inventory")} collapsed={isSidebarCollapsed} />
             </>
           )}
           {user?.permissions?.sales.create && (
@@ -459,8 +474,8 @@ export default function App() {
            <AnimatePresence mode="wait">
               {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} onOpenManual={() => setShowUserManual(true)} />}
               {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
-              {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
-              {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} />}
+              {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
+              {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
               {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
               {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
               {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
@@ -973,16 +988,18 @@ function DashboardView({ products, customers, sales, onNavigate, user, onOpenMan
     );
 }
 
-function ShopInventoryView({ products, refresh, userRole, userPermissions, onNavigate }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, key?: string }) {
+function ShopInventoryView({ products, refresh, userRole, userPermissions, onNavigate, warehouses, refreshWarehouses }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, warehouses?: Warehouse[], refreshWarehouses?: () => Promise<void> | void, key?: string }) {
     const [showModal, setShowModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
+    const [showWarehouseManager, setShowWarehouseManager] = useState(false);
     const canDelete = userRole === "admin";
     const [form, setForm] = useState({ 
         name: "", category: products[0]?.category || "Safety Vests", price: "", 
         shopStock: "", warehouseStock: "", 
+        warehouseId: warehouses?.[0]?.id || "wh-main",
         bulkUnitSize: "1", bulkUnitName: "Item", 
         sku: "", barcode: "", description: "" 
     });
@@ -1031,6 +1048,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
     const handleAdd = async () => {
         const method = editingProduct ? "PUT" : "POST";
         const url = editingProduct ? `/api/products/${editingProduct.id}` : "/api/products";
+        const whId = form.warehouseId || warehouses?.[0]?.id || "wh-main";
         
         const res = await fetch(url, {
             method,
@@ -1040,9 +1058,11 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                 price: Number(form.price), 
                 shopStock: Number(form.shopStock),
                 warehouseStock: Number(form.warehouseStock),
+                warehouseId: whId,
+                warehouseStocks: { [whId]: Number(form.warehouseStock) },
                 bulkUnitSize: Number(form.bulkUnitSize),
                 hasShopInventory: true,
-                hasWarehouseInventory: editingProduct ? (editingProduct.hasWarehouseInventory ?? false) : false
+                hasWarehouseInventory: editingProduct ? (editingProduct.hasWarehouseInventory ?? false) : (Number(form.warehouseStock) > 0)
             }),
         });
         if (res.ok) {
@@ -1052,6 +1072,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
             setForm({ 
                 name: "", category: "Safety Vests", price: "", 
                 shopStock: "", warehouseStock: "", 
+                warehouseId: warehouses?.[0]?.id || "wh-main",
                 bulkUnitSize: "1", bulkUnitName: "Item", 
                 sku: "", barcode: "", description: "" 
             });
@@ -1076,6 +1097,14 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                             <span className="hidden sm:inline">Barcode Studio</span>
                         </button>
                     )}
+                    <button 
+                        onClick={() => setShowWarehouseManager(true)}
+                        className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-amber-500/20 transition-all font-sans cursor-pointer text-xs"
+                        title="Manage Warehouse Locations"
+                    >
+                        <WarehouseIcon size={16} />
+                        <span>Warehouses {warehouses && warehouses.length > 0 ? `(${warehouses.length})` : ""}</span>
+                    </button>
                     <button onClick={handleExportPDF} title="Download PDF" className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
                         <Download size={20} />
                     </button>
@@ -1164,8 +1193,18 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                                 stock < 10 ? "bg-red-50 text-red-500" : "bg-green-50 text-green-600"
                                             )}>{stock}</span>
                                         </td>
-                                        <td className="p-4 text-center font-bold text-slate-500">
-                                            {whStockVal}
+                                        <td className="p-4 text-center">
+                                            <div className="font-bold text-slate-700">{whStockVal}</div>
+                                            {whStockVal > 0 && (() => {
+                                                const whId = matchingWhItem?.warehouseId || p.warehouseId || "wh-main";
+                                                const whObj = warehouses?.find(w => w.id === whId);
+                                                return (
+                                                    <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-0.5" title={whObj?.location || "Assigned Warehouse"}>
+                                                        <WarehouseIcon size={10} />
+                                                        <span>{whObj?.name || "Main WH"}</span>
+                                                    </span>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="p-4 text-right font-bold text-slate-900">{formatCurrency(p.price)}</td>
                                         <td className="p-4 text-right pr-8">
@@ -1180,6 +1219,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                                                 price: p.price.toString(), 
                                                                 shopStock: stock.toString(), 
                                                                 warehouseStock: (p.warehouseStock || 0).toString(),
+                                                                warehouseId: p.warehouseId || warehouses?.[0]?.id || "wh-main",
                                                                 bulkUnitSize: (p.bulkUnitSize || 1).toString(),
                                                                 bulkUnitName: p.bulkUnitName || "Item",
                                                                 sku: p.sku || "",
@@ -1408,6 +1448,18 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                             <input type="number" value={form.warehouseStock} onChange={e => setForm({...form, warehouseStock: e.target.value})} className="w-full p-3 bg-white border border-amber-200 rounded-xl focus:ring-4 focus:ring-amber-100" />
                                             <p className="text-[10px] text-amber-600 font-medium">Bulk storage quantity</p>
                                         </div>
+
+                                        {warehouses && warehouses.length > 0 && (
+                                            <WarehouseSelector
+                                                warehouses={warehouses}
+                                                selectedWarehouseId={form.warehouseId}
+                                                onChange={id => setForm({ ...form, warehouseId: id })}
+                                                onWarehouseCreated={() => refreshWarehouses && refreshWarehouses()}
+                                                label="Assigned Warehouse Location"
+                                                helperText="Select which warehouse holds this stock"
+                                                theme="amber"
+                                            />
+                                        )}
                                     </div>
                                 </div>
 
@@ -1479,11 +1531,21 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                 product={barcodeModalProduct} 
                 onClose={() => setBarcodeModalProduct(null)} 
             />
+
+            {/* Warehouse Locations Manager Modal */}
+            <WarehouseManagerModal
+                isOpen={showWarehouseManager}
+                onClose={() => setShowWarehouseManager(false)}
+                warehouses={warehouses || []}
+                products={products}
+                refreshWarehouses={refreshWarehouses || (() => {})}
+                canManage={userRole === "admin"}
+            />
         </motion.div>
     );
 }
 
-function WarehouseInventoryView({ products, refresh, userRole, userPermissions, onNavigate }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, key?: string }) {
+function WarehouseInventoryView({ products, refresh, userRole, userPermissions, onNavigate, warehouses, refreshWarehouses }: { products: Product[], refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, onNavigate?: (tab: string) => void, warehouses?: Warehouse[], refreshWarehouses?: () => Promise<void> | void, key?: string }) {
     const [searchTerm, setSearchTerm] = useState("");
     const [transferModal, setTransferModal] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
@@ -1498,25 +1560,39 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
     const [customPackQty, setCustomPackQty] = useState("");
     const [isNewCategory, setIsNewCategory] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState<string>("all");
+    const [showWarehouseManager, setShowWarehouseManager] = useState<boolean>(false);
     const categories = Array.from(new Set(products.map(p => p.category))).sort();
     const [form, setForm] = useState({ 
         name: "", category: "Safety Vests", price: "", 
         shopStock: "0", warehouseStock: "", 
+        warehouseId: warehouses?.[0]?.id || "wh-main",
         bulkUnitSize: "1", bulkUnitName: "Box", 
         sku: "", barcode: "", description: "" 
     });
 
-    const filteredProducts = products.filter(p => 
-        (p.hasWarehouseInventory !== false) && (
+    const filteredProducts = products.filter(p => {
+        if (p.hasWarehouseInventory === false) return false;
+        if (selectedWarehouseFilter !== "all") {
+            const pWhId = p.warehouseId || "wh-main";
+            const inWh = pWhId === selectedWarehouseFilter || (p.warehouseStocks && (p.warehouseStocks[selectedWarehouseFilter] || 0) > 0);
+            if (!inWh) return false;
+        }
+        return (
             p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (p.barcode && p.barcode.toLowerCase().includes(searchTerm.toLowerCase()))
-        )
-    );
+        );
+    });
 
     const handleAdd = async () => {
         const url = editingWarehouseProduct ? `/api/products/${editingWarehouseProduct.id}` : (linkingProduct ? `/api/products/${linkingProduct.id}` : "/api/products");
         const method = (editingWarehouseProduct || linkingProduct) ? "PUT" : "POST";
+        const whId = form.warehouseId || warehouses?.[0]?.id || "wh-main";
+        const initialWhStocks = editingWarehouseProduct?.warehouseStocks 
+            ? { ...editingWarehouseProduct.warehouseStocks, [whId]: Number(form.warehouseStock) }
+            : { [whId]: Number(form.warehouseStock) };
+
         const res = await fetch(url, {
             method,
             headers: { "Content-Type": "application/json" },
@@ -1525,6 +1601,8 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                 price: Number(form.price), 
                 shopStock: Number(form.shopStock),
                 warehouseStock: Number(form.warehouseStock),
+                warehouseId: whId,
+                warehouseStocks: initialWhStocks,
                 bulkUnitSize: Number(form.bulkUnitSize),
                 hasShopInventory: editingWarehouseProduct ? (editingWarehouseProduct.hasShopInventory ?? false) : (linkingProduct ? (linkingProduct.hasShopInventory ?? false) : false),
                 hasWarehouseInventory: true
@@ -1538,6 +1616,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
             setForm({ 
                 name: "", category: "Safety Vests", price: "", 
                 shopStock: "0", warehouseStock: "", 
+                warehouseId: warehouses?.[0]?.id || "wh-main",
                 bulkUnitSize: "1", bulkUnitName: "Box", 
                 sku: "", barcode: "", description: "" 
             });
@@ -1560,7 +1639,8 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                 body: JSON.stringify({
                     productId: transferModal.id,
                     quantity: calculatedQty,
-                    isBulk: false
+                    isBulk: false,
+                    sourceWarehouseId: transferModal.warehouseId || "wh-main"
                 }),
             });
             if (res.ok) {
@@ -1603,7 +1683,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
             <header className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 font-sans tracking-tight">Warehouse Inventory</h1>
-                    <p className="text-slate-500">Manage bulk stock and movement to shop floor</p>
+                    <p className="text-slate-500">Manage bulk stock across multiple warehouses and move to shop floor</p>
                 </div>
                 <div className="flex gap-3">
                     {onNavigate && (
@@ -1616,6 +1696,14 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                             <span className="hidden sm:inline">Barcode Studio</span>
                         </button>
                     )}
+                    <button 
+                        onClick={() => setShowWarehouseManager(true)}
+                        className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-amber-500/20 transition-all font-sans cursor-pointer text-xs"
+                        title="Manage Warehouse Locations"
+                    >
+                        <WarehouseIcon size={16} />
+                        <span>Warehouses {warehouses && warehouses.length > 0 ? `(${warehouses.length})` : ""}</span>
+                    </button>
                     <button onClick={handleExportPDF} className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors">
                         <Download size={18} />
                     </button>
@@ -1632,27 +1720,77 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                         </button>
                     )}
                     <div className="bg-amber-100 text-amber-700 px-4 py-2 rounded-xl border border-amber-200 flex items-center gap-2 shadow-sm">
-                        <Warehouse size={18} />
+                        <WarehouseIcon size={18} />
                         <span className="text-sm font-bold uppercase tracking-tighter">Bulk Active</span>
                     </div>
                 </div>
             </header>
 
-            <div className="relative">
-                <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
-                <input 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    placeholder="Quick search warehouse stock..." 
-                    className="w-full pl-10 pr-4 py-3.5 bg-white border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all font-medium text-slate-700 shadow-sm"
-                />
+            <div className="space-y-3">
+                <div className="relative">
+                    <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                    <input 
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        placeholder="Quick search warehouse stock..." 
+                        className="w-full pl-10 pr-4 py-3.5 bg-white border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all font-medium text-slate-700 shadow-sm"
+                    />
+                </div>
+
+                {warehouses && warehouses.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
+                            <WarehouseIcon size={12} />
+                            Location:
+                        </span>
+                        <button
+                            onClick={() => setSelectedWarehouseFilter("all")}
+                            className={cn(
+                                "px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                                selectedWarehouseFilter === "all"
+                                    ? "bg-slate-900 text-white shadow-sm"
+                                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                            )}
+                        >
+                            All Locations ({products.filter(p => p.hasWarehouseInventory !== false).length})
+                        </button>
+                        {warehouses.map(wh => {
+                            const count = products.filter(p => {
+                                if (p.hasWarehouseInventory === false) return false;
+                                const pWhId = p.warehouseId || "wh-main";
+                                return pWhId === wh.id || (p.warehouseStocks && (p.warehouseStocks[wh.id] || 0) > 0);
+                            }).length;
+                            const isSelected = selectedWarehouseFilter === wh.id;
+                            return (
+                                <button
+                                    key={wh.id}
+                                    onClick={() => setSelectedWarehouseFilter(wh.id)}
+                                    className={cn(
+                                        "px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                                        isSelected
+                                            ? "bg-amber-500 text-white shadow-sm"
+                                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                                    )}
+                                >
+                                    <span>{wh.name}</span>
+                                    <span className={cn(
+                                        "px-1.5 py-0.5 rounded-full text-[10px]",
+                                        isSelected ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-500"
+                                    )}>
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {filteredProducts.length === 0 && (
                     <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-100 rounded-[3rem] bg-slate-50/30">
                         <div className="w-20 h-20 bg-white rounded-3xl mx-auto flex items-center justify-center text-slate-200 mb-4 shadow-sm">
-                            <Warehouse size={40} />
+                            <WarehouseIcon size={40} />
                         </div>
                         <h3 className="text-xl font-bold text-slate-800">No Warehouse Products Found</h3>
                         <p className="text-slate-500 max-w-xs mx-auto mt-2">Start by adding your bulk imported goods to the warehouse inventory.</p>
@@ -1711,7 +1849,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
 
                                         {isLowWarehouseStock ? (
                                             <div className="inline-flex items-center gap-1.5 text-[9px] text-red-600 font-bold bg-red-50 border border-red-100 px-2 py-0.5 rounded-lg uppercase tracking-wide">
-                                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                                                <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
                                                 <span>Low WH Stock ({totalWhUnits} / 200 pcs)</span>
                                             </div>
                                         ) : (
@@ -1719,6 +1857,18 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                                 <span>Warehouse Total: {totalWhUnits} pcs</span>
                                             </div>
                                         )}
+
+                                        {(() => {
+                                            const whId = p.warehouseId || "wh-main";
+                                            const whObj = warehouses?.find(w => w.id === whId);
+                                            return (
+                                                <div className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg" title={whObj?.location || "Warehouse Location"}>
+                                                    <WarehouseIcon size={11} className="text-amber-600 shrink-0" />
+                                                    <span>{whObj?.name || "Main WH"}</span>
+                                                    {whObj?.location && <span className="text-amber-600/70 font-normal">· {whObj.location}</span>}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                                 <span className="bg-slate-50 text-slate-500 px-3 py-1 rounded-lg text-[10px] font-bold uppercase ring-1 ring-slate-100 shrink-0">{p.category}</span>
@@ -1772,6 +1922,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                                 price: p.price.toString(),
                                                 shopStock: (p.shopStock || 0).toString(),
                                                 warehouseStock: (p.warehouseStock || 0).toString(),
+                                                warehouseId: p.warehouseId || warehouses?.[0]?.id || "wh-main",
                                                 bulkUnitSize: (p.bulkUnitSize || 1).toString(),
                                                 bulkUnitName: p.bulkUnitName || "Box",
                                                 sku: p.sku || "",
@@ -1812,6 +1963,15 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                 </div>
                                 <h2 className="text-2xl font-bold text-slate-900">Transfer Inventory</h2>
                                 <p className="text-slate-500">Moving <span className="font-bold text-slate-800">{transferModal.name}</span> from Warehouse to Shop Inventory</p>
+                                {(() => {
+                                    const whObj = warehouses?.find(w => w.id === (transferModal.warehouseId || "wh-main"));
+                                    return (
+                                        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold mt-1">
+                                            <WarehouseIcon size={13} className="text-amber-600" />
+                                            <span>Source: {whObj?.name || "Main Warehouse"}{whObj?.location ? ` (${whObj.location})` : ""}</span>
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             <div className="space-y-6">
@@ -2088,12 +2248,23 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-bold text-amber-400 uppercase tracking-widest">Initial Warehouse Stock</label>
+                                    <label className="text-xs font-bold text-amber-500 uppercase tracking-widest">Initial Warehouse Stock</label>
                                     <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 space-y-4">
                                         <div className="space-y-1">
                                             <label className="text-xs font-bold text-amber-700">Total Units in Warehouse</label>
                                             <input type="number" value={form.warehouseStock} onChange={e => setForm({...form, warehouseStock: e.target.value})} className="w-full p-3 bg-white border border-amber-200 rounded-xl" />
                                         </div>
+                                        {warehouses && warehouses.length > 0 && (
+                                            <WarehouseSelector
+                                                warehouses={warehouses}
+                                                selectedWarehouseId={form.warehouseId}
+                                                onChange={id => setForm({ ...form, warehouseId: id })}
+                                                onWarehouseCreated={() => refreshWarehouses && refreshWarehouses()}
+                                                label="Assign to Warehouse Location"
+                                                helperText="Specify which warehouse holds this inventory"
+                                                theme="amber"
+                                            />
+                                        )}
                                     </div>
                                 </div>
 
@@ -2174,6 +2345,16 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
             <BarcodeLabelModal 
                 product={barcodeModalProduct} 
                 onClose={() => setBarcodeModalProduct(null)} 
+            />
+
+            {/* Warehouse Locations Manager Modal */}
+            <WarehouseManagerModal
+                isOpen={showWarehouseManager}
+                onClose={() => setShowWarehouseManager(false)}
+                warehouses={warehouses || []}
+                products={products}
+                refreshWarehouses={refreshWarehouses || (() => {})}
+                canManage={userRole === "admin"}
             />
         </motion.div>
     );

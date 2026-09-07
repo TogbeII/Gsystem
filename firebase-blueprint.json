@@ -52,10 +52,26 @@
         "shopStock": { "type": "number" },
         "warehouseStock": { "type": "number" },
         "warehouseLooseStock": { "type": "number" },
+        "warehouseId": { "type": "string" },
+        "warehouseStocks": { "type": "object" },
         "hasShopInventory": { "type": "boolean" },
         "hasWarehouseInventory": { "type": "boolean" }
       },
       "required": ["id", "name", "price"]
+    },
+    "Warehouse": {
+      "title": "Warehouse",
+      "description": "Physical or logical warehouse location holding inventory stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "location": { "type": "string" },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
     },
     "Customer": {
       "title": "Customer",
@@ -171,6 +187,10 @@
     "invoices/{invoiceId}": {
       "schema": "Invoice",
       "description": "Generated invoices on products requested by customers and companies"
+    },
+    "warehouses/{warehouseId}": {
+      "schema": "Warehouse",
+      "description": "Warehouses and storage depot locations"
     }
   }
 }

@@ -1725,12 +1725,148 @@ app.delete("/api/users/:username", async (req, res) => {
   res.json({ success: true });
 });
 
+// Warehouses Management
+app.get("/api/warehouses", async (req, res) => {
+  try {
+    let warehouses = await getCollectionData("warehouses");
+    if (!warehouses || warehouses.length === 0) {
+      const defaultWh = {
+        id: "wh-main",
+        name: "Main Warehouse",
+        code: "WH-MAIN",
+        location: "Central Storage Depot",
+        isDefault: true,
+        createdAt: new Date().toISOString()
+      };
+      await setDocumentData("warehouses", defaultWh.id, defaultWh);
+      warehouses = [defaultWh];
+    }
+    res.json(warehouses);
+  } catch (err: any) {
+    console.error("Error fetching warehouses:", err);
+    res.status(500).json({ error: "Failed to fetch warehouses" });
+  }
+});
+
+app.post("/api/warehouses", async (req, res) => {
+  try {
+    const { name, code, location, isDefault } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Warehouse name is required" });
+    }
+    const existing = (await getCollectionData("warehouses")) || [];
+    const cleanName = name.trim();
+    const cleanCode = (code || cleanName.slice(0, 3).toUpperCase() + "-" + Math.floor(100 + Math.random() * 900)).trim().toUpperCase();
+    const newWh = {
+      id: "wh-" + crypto.randomUUID().slice(0, 8),
+      name: cleanName,
+      code: cleanCode,
+      location: (location || "").trim(),
+      isDefault: Boolean(isDefault) || existing.length === 0,
+      createdAt: new Date().toISOString()
+    };
+
+    if (newWh.isDefault) {
+      for (const wh of existing) {
+        if (wh.isDefault) {
+          wh.isDefault = false;
+          await setDocumentData("warehouses", wh.id, wh);
+        }
+      }
+    }
+
+    await setDocumentData("warehouses", newWh.id, newWh);
+    res.json(newWh);
+  } catch (err: any) {
+    console.error("Error creating warehouse:", err);
+    res.status(500).json({ error: err.message || "Failed to create warehouse" });
+  }
+});
+
+app.put("/api/warehouses/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, code, location, isDefault } = req.body;
+    const existing = await getDocumentData("warehouses", id);
+    if (!existing) return res.status(404).json({ error: "Warehouse not found" });
+
+    const all = (await getCollectionData("warehouses")) || [];
+    if (isDefault && !existing.isDefault) {
+      for (const wh of all) {
+        if (wh.id !== id && wh.isDefault) {
+          wh.isDefault = false;
+          await setDocumentData("warehouses", wh.id, wh);
+        }
+      }
+    }
+
+    const updated = {
+      ...existing,
+      name: name ? name.trim() : existing.name,
+      code: code !== undefined ? code.trim().toUpperCase() : existing.code,
+      location: location !== undefined ? location.trim() : existing.location,
+      isDefault: isDefault !== undefined ? Boolean(isDefault) : existing.isDefault
+    };
+    await setDocumentData("warehouses", id, updated);
+    res.json(updated);
+  } catch (err: any) {
+    console.error("Error updating warehouse:", err);
+    res.status(500).json({ error: err.message || "Failed to update warehouse" });
+  }
+});
+
+app.delete("/api/warehouses/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const all = (await getCollectionData("warehouses")) || [];
+    if (all.length <= 1) {
+      return res.status(400).json({ error: "Cannot delete the only warehouse in the system" });
+    }
+    const target = all.find((w: any) => w.id === id);
+    if (!target) return res.status(404).json({ error: "Warehouse not found" });
+
+    const fallbackWh = all.find((w: any) => w.id !== id);
+    const fallbackId = fallbackWh ? fallbackWh.id : "wh-main";
+
+    const products = (await getCollectionData("products")) || [];
+    for (const p of products) {
+      let changed = false;
+      if (p.warehouseId === id) {
+        p.warehouseId = fallbackId;
+        changed = true;
+      }
+      if (p.warehouseStocks && p.warehouseStocks[id]) {
+        p.warehouseStocks[fallbackId] = (p.warehouseStocks[fallbackId] || 0) + p.warehouseStocks[id];
+        delete p.warehouseStocks[id];
+        changed = true;
+      }
+      if (changed) {
+        await setDocumentData("products", p.id, p);
+      }
+    }
+
+    await deleteDocumentData("warehouses", id);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Error deleting warehouse:", err);
+    res.status(500).json({ error: err.message || "Failed to delete warehouse" });
+  }
+});
+
 // Products
 app.get("/api/products", async (req, res) => {
   const products = await getCollectionData("products");
   const enriched = (products || []).map((p: any) => {
     if (!p.barcode && p.sku) {
       p.barcode = p.sku;
+    }
+    if (!p.warehouseId) {
+      p.warehouseId = "wh-main";
+    }
+    if (!p.warehouseStocks) {
+      p.warehouseStocks = {
+        [p.warehouseId]: Number(p.warehouseStock || 0)
+      };
     }
     return p;
   });
@@ -1755,6 +1891,16 @@ app.post("/api/products", async (req, res) => {
     product.warehouseStock = Number(product.warehouseStock);
   }
   product.warehouseLooseStock = Number(product.warehouseLooseStock) || 0;
+  if (!product.warehouseId) {
+    product.warehouseId = "wh-main";
+  }
+  if (!product.warehouseStocks) {
+    product.warehouseStocks = {
+      [product.warehouseId]: product.warehouseStock
+    };
+  } else {
+    product.warehouseStocks[product.warehouseId] = product.warehouseStock;
+  }
   if (product.price === undefined || product.price === "") {
     product.price = 0;
   } else {
@@ -1775,7 +1921,7 @@ app.post("/api/products", async (req, res) => {
 });
 
 app.post("/api/inventory/transfer", async (req, res) => {
-  const { productId, quantity, isBulk } = req.body;
+  const { productId, quantity, isBulk, sourceWarehouseId } = req.body;
   const p = await getDocumentData("products", productId);
   if (!p) return res.status(404).json({ error: "Product not found" });
 
@@ -1812,6 +1958,13 @@ app.post("/api/inventory/transfer", async (req, res) => {
   p.warehouseStock = Math.floor(remainingSingles / bulkSize);
   p.warehouseLooseStock = remainingSingles % bulkSize;
 
+  const whIdToUse = sourceWarehouseId || p.warehouseId || "wh-main";
+  if (!p.warehouseStocks) {
+    p.warehouseStocks = { [whIdToUse]: p.warehouseStock };
+  } else {
+    p.warehouseStocks[whIdToUse] = p.warehouseStock;
+  }
+
   // If the product itself has shop inventory, we transfer directly to its own shop stock
   if (p.hasShopInventory) {
     p.shopStock = (p.shopStock || 0) + transferQuantity;
@@ -1837,6 +1990,8 @@ app.post("/api/inventory/transfer", async (req, res) => {
       shopStock: transferQuantity,
       warehouseStock: 0,
       warehouseLooseStock: 0,
+      warehouseId: whIdToUse,
+      warehouseStocks: { [whIdToUse]: 0 },
       hasShopInventory: true,
       hasWarehouseInventory: false
     };
@@ -1859,6 +2014,20 @@ app.put("/api/products/:id", async (req, res) => {
   if (merged.warehouseStock !== undefined && merged.warehouseStock !== "") merged.warehouseStock = Number(merged.warehouseStock);
   if (merged.warehouseLooseStock !== undefined && merged.warehouseLooseStock !== "") merged.warehouseLooseStock = Number(merged.warehouseLooseStock);
   if (merged.bulkUnitSize !== undefined && merged.bulkUnitSize !== "") merged.bulkUnitSize = Number(merged.bulkUnitSize);
+
+  if (updated.warehouseId) {
+    merged.warehouseId = updated.warehouseId;
+  } else if (!merged.warehouseId) {
+    merged.warehouseId = "wh-main";
+  }
+
+  if (updated.warehouseStocks) {
+    merged.warehouseStocks = updated.warehouseStocks;
+  } else if (merged.warehouseStocks) {
+    merged.warehouseStocks[merged.warehouseId] = merged.warehouseStock || 0;
+  } else {
+    merged.warehouseStocks = { [merged.warehouseId]: merged.warehouseStock || 0 };
+  }
 
   await setDocumentData("products", id, merged);
   res.json(merged);

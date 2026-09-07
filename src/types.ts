@@ -22,6 +22,15 @@ export interface License {
   expiresAt: string;
 }
 
+export interface Warehouse {
+  id: string;
+  name: string;
+  code?: string;
+  location?: string;
+  isDefault?: boolean;
+  createdAt?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -29,6 +38,9 @@ export interface Product {
   price: number;
   shopStock: number;
   warehouseStock: number;
+  warehouseLooseStock?: number;
+  warehouseId?: string; // ID of the assigned warehouse
+  warehouseStocks?: { [warehouseId: string]: number }; // Multiple warehouse stock breakdown
   bulkUnitSize: number; // e.g. 12 if stored in boxes of 12
   bulkUnitName: string; // e.g. "Box", "Sack", "Large Item"
   description: string;
