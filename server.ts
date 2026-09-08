@@ -2061,7 +2061,7 @@ app.get("/api/sales", async (req, res) => {
 
 app.post("/api/sales", async (req, res) => {
   try {
-    const { items, customerId, customerName, total, paymentType, amountPaid, discount } = req.body;
+    const { items, customerId, customerName, total, paymentType, amountPaid, discount, cashierUsername, cashierName, shiftId } = req.body;
     const discountAmount = Number(discount) || 0;
     const numericTotal = Number(total) || 0;
     const finalTotal = Math.max(0, numericTotal - discountAmount);
@@ -2074,6 +2074,10 @@ app.post("/api/sales", async (req, res) => {
     }
     if (!resolvedCustomerName) resolvedCustomerName = "Walk-in";
 
+    const headerUser = (req.headers["x-username"] as string) || "";
+    const resolvedCashierUser = (cashierUsername || headerUser || "admin").trim();
+    const resolvedCashierName = (cashierName || (resolvedCashierUser === "admin" ? "Administrator" : resolvedCashierUser)).trim();
+
     const sale = {
       id: crypto.randomUUID(),
       items: items || [],
@@ -2083,6 +2087,9 @@ app.post("/api/sales", async (req, res) => {
       discount: discountAmount,
       paymentType,
       amountPaid: numericAmountPaid,
+      cashierUsername: resolvedCashierUser,
+      cashierName: resolvedCashierName,
+      shiftId: shiftId || "",
       date: new Date().toISOString(),
     };
     
@@ -2139,6 +2146,96 @@ app.post("/api/sales", async (req, res) => {
   } catch (err: any) {
     console.error("Error creating sale:", err);
     res.status(500).json({ error: err.message || "Failed to process sale" });
+  }
+});
+
+// Shifts & Cashier Sessions API
+app.get("/api/shifts", async (req, res) => {
+  try {
+    const shifts = await getCollectionData("shifts");
+    shifts.sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime());
+    res.json(shifts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch shifts" });
+  }
+});
+
+app.get("/api/shifts/active", async (req, res) => {
+  try {
+    const username = (req.query.username as string || req.headers["x-username"] as string || "").trim().toLowerCase();
+    const shifts = await getCollectionData("shifts");
+    const active = shifts.find(s => s.status === "active" && (!username || (s.cashierUsername || "").toLowerCase() === username));
+    res.json(active || null);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch active shift" });
+  }
+});
+
+app.post("/api/shifts/start", async (req, res) => {
+  try {
+    const { cashierUsername, cashierName, openingFloat } = req.body;
+    const headerUser = (req.headers["x-username"] as string) || "";
+    const resolvedUser = (cashierUsername || headerUser || "admin").trim();
+    const resolvedName = (cashierName || (resolvedUser === "admin" ? "Administrator" : resolvedUser)).trim();
+
+    const shifts = await getCollectionData("shifts");
+    const existingActive = shifts.find(s => s.status === "active" && (s.cashierUsername || "").toLowerCase() === resolvedUser.toLowerCase());
+    if (existingActive) {
+      return res.json(existingActive);
+    }
+
+    const shift = {
+      id: crypto.randomUUID(),
+      cashierUsername: resolvedUser,
+      cashierName: resolvedName,
+      startedAt: new Date().toISOString(),
+      openingFloat: Number(openingFloat) || 0,
+      status: "active",
+      totalSalesCount: 0,
+      totalSalesAmount: 0,
+      cashSalesAmount: 0,
+      mobileMoneySalesAmount: 0,
+      creditSalesAmount: 0,
+      expectedCash: Number(openingFloat) || 0,
+      actualCash: 0,
+      discrepancy: 0,
+      notes: "",
+    };
+
+    await setDocumentData("shifts", shift.id, shift);
+    res.json(shift);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to start shift" });
+  }
+});
+
+app.post("/api/shifts/close", async (req, res) => {
+  try {
+    const { shiftId, actualCash, notes, totalSalesCount, totalSalesAmount, cashSalesAmount, mobileMoneySalesAmount, creditSalesAmount, expectedCash, discrepancy } = req.body;
+    if (!shiftId) {
+      return res.status(400).json({ error: "Missing shift ID" });
+    }
+    const shift = await getDocumentData("shifts", shiftId);
+    if (!shift) {
+      return res.status(404).json({ error: "Shift not found" });
+    }
+
+    shift.status = "closed";
+    shift.endedAt = new Date().toISOString();
+    shift.actualCash = Number(actualCash) || 0;
+    shift.notes = notes || "";
+    if (totalSalesCount !== undefined) shift.totalSalesCount = Number(totalSalesCount) || 0;
+    if (totalSalesAmount !== undefined) shift.totalSalesAmount = Number(totalSalesAmount) || 0;
+    if (cashSalesAmount !== undefined) shift.cashSalesAmount = Number(cashSalesAmount) || 0;
+    if (mobileMoneySalesAmount !== undefined) shift.mobileMoneySalesAmount = Number(mobileMoneySalesAmount) || 0;
+    if (creditSalesAmount !== undefined) shift.creditSalesAmount = Number(creditSalesAmount) || 0;
+    if (expectedCash !== undefined) shift.expectedCash = Number(expectedCash) || 0;
+    if (discrepancy !== undefined) shift.discrepancy = Number(discrepancy) || 0;
+
+    await setDocumentData("shifts", shift.id, shift);
+    res.json(shift);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to close shift" });
   }
 });
 

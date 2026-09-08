@@ -149,6 +149,30 @@
         "date": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "invoiceNumber", "clientName", "items", "total", "date"]
+    },
+    "Shift": {
+      "title": "Shift",
+      "description": "Cashier work shift records and financial drawer reconciliations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cashierUsername": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "endedAt": { "type": "string", "format": "date-time" },
+        "openingFloat": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "totalSalesCount": { "type": "number" },
+        "totalSalesAmount": { "type": "number" },
+        "cashSalesAmount": { "type": "number" },
+        "mobileMoneySalesAmount": { "type": "number" },
+        "creditSalesAmount": { "type": "number" },
+        "expectedCash": { "type": "number" },
+        "actualCash": { "type": "number" },
+        "discrepancy": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "cashierUsername", "cashierName", "startedAt", "status"]
     }
   },
   "firestore": {
@@ -191,6 +215,10 @@
     "warehouses/{warehouseId}": {
       "schema": "Warehouse",
       "description": "Warehouses and storage depot locations"
+    },
+    "shifts/{shiftId}": {
+      "schema": "Shift",
+      "description": "Cashier shifts and handover reconciliations"
     }
   }
 }

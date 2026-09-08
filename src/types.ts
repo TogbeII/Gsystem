@@ -71,9 +71,32 @@ export interface Sale {
   customerId?: string;
   customerName?: string;
   total: number;
+  discount?: number;
   paymentType: "cash" | "credit" | "mobile_money";
   amountPaid: number;
   date: string;
+  cashierUsername?: string;
+  cashierName?: string;
+  shiftId?: string;
+}
+
+export interface CashierShift {
+  id: string;
+  cashierUsername: string;
+  cashierName: string;
+  startedAt: string;
+  endedAt?: string;
+  openingFloat: number;
+  status: "active" | "closed";
+  totalSalesCount?: number;
+  totalSalesAmount?: number;
+  cashSalesAmount?: number;
+  mobileMoneySalesAmount?: number;
+  creditSalesAmount?: number;
+  expectedCash?: number;
+  actualCash?: number;
+  discrepancy?: number;
+  notes?: string;
 }
 
 export interface PaymentRecord {

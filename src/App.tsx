@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { 
   LayoutDashboard, 
   Package, 
@@ -39,7 +39,11 @@ import {
   Camera,
   AlertCircle,
   CheckCircle2,
-  BookOpen
+  BookOpen,
+  Receipt,
+  User as UserIcon,
+  UserCheck,
+  DollarSign
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
@@ -54,6 +58,7 @@ import BarcodeScannerHubView from "./components/BarcodeScannerHubView";
 import { UserManualModal } from "./components/UserManualModal";
 import { WarehouseManagerModal } from "./components/WarehouseManagerModal";
 import { WarehouseSelector } from "./components/WarehouseSelector";
+import { ShiftHandoverModal } from "./components/ShiftHandoverModal";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { 
   LineChart, 
@@ -131,6 +136,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showLicenseReminder, setShowLicenseReminder] = useState(false);
   const [showUserManual, setShowUserManual] = useState(false);
+  const [showShiftModal, setShowShiftModal] = useState(false);
+  const [selectedCashierForHistory, setSelectedCashierForHistory] = useState<string>("all");
 
   // Sync component state user to the module-level variable for custom fetch
   useEffect(() => {
@@ -442,6 +449,16 @@ export default function App() {
                   <ScanLine size={14} />
                   <span>Barcode Studio</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowShiftModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-2xs cursor-pointer"
+                  title="Cashier Shift Handover & Drawer Balancing"
+                >
+                  <Receipt size={14} className="text-amber-600" />
+                  <span className="hidden sm:inline">Shift Handover</span>
+                </button>
             </div>
             
             <div className="flex items-center gap-6">
@@ -457,7 +474,7 @@ export default function App() {
 
                 <button 
                     onClick={handleSignOut}
-                    className="flex items-center gap-2 text-slate-400 hover:text-red-600 transition-colors py-2 px-1 rounded-lg group"
+                    className="flex items-center gap-2 text-slate-400 hover:text-red-600 transition-colors py-2 px-1 rounded-lg group cursor-pointer"
                     title="Sign Out"
                 >
                     <LogOut size={18} className="group-hover:rotate-12 transition-transform" />
@@ -472,13 +489,52 @@ export default function App() {
             activeTab === "pos" ? "overflow-hidden flex flex-col p-6" : "overflow-auto p-8"
         )}>
            <AnimatePresence mode="wait">
-              {activeTab === "dashboard" && <DashboardView key="dash" products={products} customers={customers} sales={sales} onNavigate={setActiveTab} user={user} onOpenManual={() => setShowUserManual(true)} />}
+              {activeTab === "dashboard" && (
+                <DashboardView 
+                  key="dash" 
+                  products={products} 
+                  customers={customers} 
+                  sales={sales} 
+                  onNavigate={setActiveTab} 
+                  user={user} 
+                  onOpenManual={() => setShowUserManual(true)} 
+                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                  onFilterCashierSales={(cashierUser) => {
+                    setSelectedCashierForHistory(cashierUser);
+                    setActiveTab("sales");
+                  }}
+                />
+              )}
               {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
               {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
               {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
-              {activeTab === "pos" && user?.permissions?.sales.create && <POSView key="pos" products={products} customers={customers} refresh={fetchData} businessName={config.businessName} />}
+              {activeTab === "pos" && user?.permissions?.sales.create && (
+                <POSView 
+                  key="pos" 
+                  products={products} 
+                  customers={customers} 
+                  refresh={fetchData} 
+                  businessName={config.businessName} 
+                  currentUser={user}
+                  sales={sales}
+                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                />
+              )}
               {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
-              {activeTab === "sales" && user?.permissions?.sales.history && <SalesHistoryView key="sales" sales={sales} customers={customers} returns={returns} refresh={fetchData} userRole={user?.role} />}
+              {activeTab === "sales" && user?.permissions?.sales.history && (
+                <SalesHistoryView 
+                  key="sales" 
+                  sales={sales} 
+                  customers={customers} 
+                  returns={returns} 
+                  refresh={fetchData} 
+                  userRole={user?.role} 
+                  currentUser={user}
+                  businessName={config.businessName}
+                  initialCashierFilter={selectedCashierForHistory}
+                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                />
+              )}
               {activeTab === "credit" && user?.permissions?.credit.view && <CreditView key="cred" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "customers" && user?.permissions?.customers.view && <CustomerView key="cust" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} config={config} setConfig={setConfig} />}
@@ -529,6 +585,20 @@ export default function App() {
         isOpen={showUserManual} 
         onClose={() => setShowUserManual(false)} 
         businessName={config.businessName || "Genesys Retail & Warehouse"}
+      />
+
+      <ShiftHandoverModal
+        isOpen={showShiftModal}
+        onClose={() => setShowShiftModal(false)}
+        currentUser={user}
+        sales={sales}
+        businessName={config.businessName || "Genesys Retail"}
+        onShiftClosed={() => {
+          fetchData();
+        }}
+        onSignOutAfterClose={() => {
+          handleSignOut();
+        }}
       />
     </div>
   );
@@ -812,19 +882,58 @@ function AdminSetup({ onComplete, onBackToLogin }: any) {
 
 // --- Main Views ---
 
-function DashboardView({ products, customers, sales, onNavigate, user, onOpenManual }: { products: Product[], customers: Customer[], sales: Sale[], onNavigate: (tab: string) => void, user: User | null, onOpenManual?: () => void, key?: string }) {
+function DashboardView({ 
+    products, 
+    customers, 
+    sales, 
+    onNavigate, 
+    user, 
+    onOpenManual,
+    onOpenShiftHandover,
+    onFilterCashierSales
+}: { 
+    products: Product[], 
+    customers: Customer[], 
+    sales: Sale[], 
+    onNavigate: (tab: string) => void, 
+    user: User | null, 
+    onOpenManual?: () => void,
+    onOpenShiftHandover?: () => void,
+    onFilterCashierSales?: (username: string) => void,
+    key?: string 
+}) {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfTomorrow = new Date(startOfToday);
     startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
 
+    const todaySales = sales.filter(s => {
+        const saleDate = new Date(s.date);
+        return saleDate >= startOfToday && saleDate < startOfTomorrow;
+    });
+
+    const cashierBreakdown = useMemo(() => {
+        const map = new Map<string, { username: string; name: string; total: number; count: number; cash: number; momo: number; credit: number }>();
+        todaySales.forEach(s => {
+            const u = s.cashierUsername || "admin";
+            const name = s.cashierName || (u === "admin" ? "Administrator" : u);
+            if (!map.has(u)) {
+                map.set(u, { username: u, name, total: 0, count: 0, cash: 0, momo: 0, credit: 0 });
+            }
+            const entry = map.get(u)!;
+            entry.total += s.total || 0;
+            entry.count += 1;
+            if (s.paymentType === "cash") entry.cash += (s.amountPaid !== undefined ? s.amountPaid : s.total || 0);
+            else if (s.paymentType === "mobile_money") entry.momo += (s.amountPaid !== undefined ? s.amountPaid : s.total || 0);
+            else if (s.paymentType === "credit") entry.credit += s.total || 0;
+        });
+        return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    }, [todaySales]);
+
     const stats = {
         inventory: products.reduce((acc, p) => acc + (p.shopStock || 0), 0),
         debtors: customers.filter(c => c.balance > 0).length,
-        totalSales: sales.filter(s => {
-            const saleDate = new Date(s.date);
-            return saleDate >= startOfToday && saleDate < startOfTomorrow;
-        }).reduce((acc, s) => acc + s.total, 0),
+        totalSales: todaySales.reduce((acc, s) => acc + s.total, 0),
         lowStock: products.filter(p => (p.shopStock || 0) < 10).length,
         lowWarehouseStock: products.filter(p => {
             if (p.hasWarehouseInventory === false) return false;
@@ -983,6 +1092,136 @@ function DashboardView({ products, customers, sales, onNavigate, user, onOpenMan
                         </ResponsiveContainer>
                     </div>
                 </div>
+            </div>
+
+            {/* Today's Cashier Shift & Sales Performance */}
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-6">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <span className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                                <Receipt size={20} />
+                            </span>
+                            <h2 className="text-xl font-black text-slate-900">Today's Cashier Sales & Shift Performance</h2>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Live cashier sales attribution and overall daily store sales across all users
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={() => onOpenShiftHandover?.()}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                        >
+                            <Receipt size={14} className="text-amber-600" />
+                            <span>Shift Handover</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onNavigate("sales")}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        >
+                            <span>Open Sales Ledger</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Store-wide summary banner */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50/80 p-5 rounded-2xl border border-slate-100">
+                    <div>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Overall Store Sales (Today)</p>
+                        <p className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(stats.totalSales)}</p>
+                    </div>
+                    <div>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Store Receipts</p>
+                        <p className="text-2xl font-black text-blue-600 mt-1">{todaySales.length} <span className="text-xs font-bold text-slate-400 font-sans">sales completed</span></p>
+                    </div>
+                    <div>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Cashiers Today</p>
+                        <p className="text-2xl font-black text-emerald-600 mt-1">{cashierBreakdown.length} <span className="text-xs font-bold text-slate-400 font-sans">user accounts</span></p>
+                    </div>
+                </div>
+
+                {cashierBreakdown.length === 0 ? (
+                    <div className="text-center py-12 px-4 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                        <UserIcon size={32} className="mx-auto text-slate-300 mb-2" />
+                        <p className="font-bold text-slate-700 text-sm">No cashier sales recorded yet today</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                            When cashiers make sales at the POS, their individual totals, payment breakdowns, and shift metrics will be shown here in real time.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {cashierBreakdown.map((cashier) => {
+                            const share = stats.totalSales > 0 ? ((cashier.total / stats.totalSales) * 100).toFixed(1) : "0.0";
+                            return (
+                                <div 
+                                    key={cashier.username} 
+                                    className="bg-white border border-slate-200 hover:border-blue-200 rounded-2xl p-6 shadow-xs transition-all space-y-4 relative overflow-hidden group"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 font-black flex items-center justify-center text-sm border border-blue-100">
+                                                {cashier.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-900 text-sm">{cashier.name}</h4>
+                                                <p className="text-[11px] text-slate-400 font-mono">@{cashier.username}</p>
+                                            </div>
+                                        </div>
+                                        <span className="text-[11px] font-bold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100">
+                                            {share}% of store
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Sales Made</p>
+                                        <div className="flex items-baseline justify-between mt-1">
+                                            <span className="text-2xl font-black text-slate-900">{formatCurrency(cashier.total)}</span>
+                                            <span className="text-xs font-bold text-slate-500">{cashier.count} {cashier.count === 1 ? "receipt" : "receipts"}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Payment Method Breakdown */}
+                                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-[11px]">
+                                        <div className="bg-emerald-50/60 p-2 rounded-xl text-center">
+                                            <span className="block text-[9px] font-bold uppercase text-emerald-700">Cash</span>
+                                            <span className="font-bold text-slate-800">{formatCurrency(cashier.cash)}</span>
+                                        </div>
+                                        <div className="bg-blue-50/60 p-2 rounded-xl text-center">
+                                            <span className="block text-[9px] font-bold uppercase text-blue-700">MoMo</span>
+                                            <span className="font-bold text-slate-800">{formatCurrency(cashier.momo)}</span>
+                                        </div>
+                                        <div className="bg-amber-50/60 p-2 rounded-xl text-center">
+                                            <span className="block text-[9px] font-bold uppercase text-amber-700">Credit</span>
+                                            <span className="font-bold text-slate-800">{formatCurrency(cashier.credit)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Share Progress Bar */}
+                                    <div className="space-y-1">
+                                        <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                            <div 
+                                                className="bg-blue-600 h-full rounded-full transition-all" 
+                                                style={{ width: `${Math.min(100, Math.max(5, Number(share)))}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => onFilterCashierSales?.(cashier.username)}
+                                        className="w-full py-2 bg-slate-50 hover:bg-blue-50 hover:text-blue-700 text-slate-600 rounded-xl text-xs font-bold transition-all border border-slate-200 hover:border-blue-200 cursor-pointer flex items-center justify-center gap-1.5"
+                                    >
+                                        <span>View Cashier's Sales</span>
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </motion.div>
     );
@@ -2360,7 +2599,24 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
     );
 }
 
-function POSView({ products, customers, refresh, businessName }: { products: Product[], customers: Customer[], refresh: () => void | Promise<void>, businessName: string, key?: string }) {
+function POSView({ 
+    products, 
+    customers, 
+    refresh, 
+    businessName,
+    currentUser,
+    sales = [],
+    onOpenShiftHandover
+}: { 
+    products: Product[], 
+    customers: Customer[], 
+    refresh: () => void | Promise<void>, 
+    businessName: string, 
+    currentUser?: User | null,
+    sales?: Sale[],
+    onOpenShiftHandover?: () => void,
+    key?: string 
+}) {
     const [cart, setCart] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -2707,7 +2963,10 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
 
             const res = await fetch("/api/sales", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "x-username": currentUser?.username || "admin"
+                },
                 body: JSON.stringify({
                     items: cart,
                     customerId: selectedCustomer,
@@ -2715,7 +2974,9 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                     total,
                     discount: discountAmt,
                     paymentType,
-                    amountPaid: paid
+                    amountPaid: paid,
+                    cashierUsername: currentUser?.username || "admin",
+                    cashierName: currentUser?.fullName || "Administrator"
                 }),
             });
 
@@ -2788,6 +3049,7 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                     <div class="my-4 border-t border-b py-2 text-xs">
                         <div class="flex"><span>Receipt ID:</span> <span>${lastSale.id.split('-')[0].toUpperCase()}</span></div>
                         <div class="flex"><span>Date:</span> <span>${new Date(lastSale.date).toLocaleString()}</span></div>
+                        <div class="flex"><span>Cashier:</span> <span>${lastSale.cashierName || lastSale.cashierUsername || 'Administrator'}</span></div>
                         <div class="flex"><span>Customer:</span> <span>${lastSale.customerName}</span></div>
                         <div class="flex"><span>Payment:</span> <span style="text-transform: uppercase;">${lastSale.paymentType}</span></div>
                     </div>
@@ -2857,6 +3119,7 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
         
         doc.text(`Customer Name: ${lastSale.customerName}`, 120, 46);
         doc.text(`Payment Type: ${lastSale.paymentType.toUpperCase()}`, 120, 52);
+        doc.text(`Cashier: ${lastSale.cashierName || lastSale.cashierUsername || 'Administrator'}`, 120, 58);
         
                 // Headers and rows of purchase
         const headers = [["Product / Item Description", "Unit Price", "Purchased Qty", "Net Value"]];
@@ -3025,6 +3288,17 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                 <span className="hidden sm:inline">Camera</span>
                             </button>
 
+                            {/* Shift Handover Button */}
+                            <button
+                                type="button"
+                                onClick={() => onOpenShiftHandover?.()}
+                                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                                title="Open Shift Handover & Sales Totals"
+                            >
+                                <Receipt size={15} className="text-amber-600" />
+                                <span className="hidden sm:inline">Shift Handover</span>
+                            </button>
+
                             {/* Search Box */}
                             <div className="relative w-64 md:w-72">
                                 <Search className="absolute left-3 top-3 text-slate-400" size={18} />
@@ -3084,7 +3358,7 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                 </div>
 
                 <div className="w-96 bg-white rounded-[2rem] border border-slate-200 p-6 flex flex-col shadow-sm h-full max-h-full overflow-hidden shrink-0">
-                    <div className="flex justify-between items-center mb-4 shrink-0">
+                    <div className="flex justify-between items-center mb-3 shrink-0">
                         <h3 className="text-xl font-bold text-slate-800 font-sans uppercase tracking-tight">Current Sale</h3>
                         {cart.length > 0 && (
                             <button 
@@ -3095,6 +3369,31 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                 Clear Cart
                             </button>
                         )}
+                    </div>
+
+                    {/* Active Cashier Identity & Shift Status */}
+                    <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs shrink-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-black flex items-center justify-center text-xs shrink-0">
+                                {(currentUser?.fullName || "A").charAt(0).toUpperCase()}
+                            </span>
+                            <div className="min-w-0">
+                                <span className="font-bold text-slate-800 block text-xs leading-tight truncate">
+                                    {currentUser?.fullName || "Administrator"}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                    @{currentUser?.username || "admin"} (Active Cashier)
+                                </span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => onOpenShiftHandover?.()}
+                            className="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200 cursor-pointer shrink-0"
+                            title="View Shift Total & Handover"
+                        >
+                            Shift Total
+                        </button>
                     </div>
 
                     {lastScannedItem && (
@@ -3412,6 +3711,10 @@ function POSView({ products, customers, refresh, businessName }: { products: Pro
                                         <div className="flex justify-between text-[10px] text-slate-400 pt-4 font-bold uppercase">
                                             <span>Method: {lastSale.paymentType}</span>
                                             <span>Customer: {lastSale.customerName}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[11px] text-slate-600 pt-2 border-t border-slate-200 border-dashed">
+                                            <span className="font-semibold text-slate-400">Cashier:</span>
+                                            <span className="font-bold text-slate-800">{lastSale.cashierName || lastSale.cashierUsername || 'Administrator'} <span className="text-[10px] text-slate-400 font-mono">(@{lastSale.cashierUsername || 'admin'})</span></span>
                                         </div>
                                     </div>
 
@@ -3797,10 +4100,34 @@ function CustomerView({ customers, refresh, userPermissions }: { customers: Cust
     );
 }
 
-function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }: { sales: Sale[], customers: Customer[], returns?: any[], refresh?: () => void | Promise<void>, userRole?: string, key?: string }) {
+function SalesHistoryView({ 
+    sales, 
+    customers, 
+    returns = [], 
+    refresh, 
+    userRole,
+    currentUser,
+    businessName,
+    initialCashierFilter = "",
+    onClearCashierFilter,
+    onOpenShiftHandover
+}: { 
+    sales: Sale[], 
+    customers: Customer[], 
+    returns?: any[], 
+    refresh?: () => void | Promise<void>, 
+    userRole?: string,
+    currentUser?: any,
+    businessName?: string,
+    initialCashierFilter?: string,
+    onClearCashierFilter?: () => void,
+    onOpenShiftHandover?: () => void,
+    key?: string 
+}) {
     const [viewMode, setViewMode] = useState<"sales" | "returns">("sales");
     const [searchTerm, setSearchTerm] = useState("");
     const [dateFilter, setDateFilter] = useState<"all" | "day" | "week" | "month" | "year" | "custom">("day");
+    const [cashierFilter, setCashierFilter] = useState<string>(initialCashierFilter || "all");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     
@@ -3808,59 +4135,96 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
     const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const filteredSales = sales.filter(s => {
-        // Date Filtering
-        if (dateFilter !== "all") {
-            const saleDate = new Date(s.date);
-            const now = new Date();
-            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const startOfTomorrow = new Date(startOfToday);
-            startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    useEffect(() => {
+        if (initialCashierFilter) {
+            setCashierFilter(initialCashierFilter);
+        }
+    }, [initialCashierFilter]);
 
-            if (dateFilter === "day") {
-                if (!(saleDate >= startOfToday && saleDate < startOfTomorrow)) return false;
-            } else if (dateFilter === "week") {
-                const currentDayOfWeek = now.getDay();
-                const startOfWeek = new Date(startOfToday);
-                startOfWeek.setDate(startOfWeek.getDate() - currentDayOfWeek);
-                
-                const endOfWeek = new Date(startOfWeek);
-                endOfWeek.setDate(endOfWeek.getDate() + 7);
-                
-                if (!(saleDate >= startOfWeek && saleDate < endOfWeek)) return false;
-            } else if (dateFilter === "month") {
-                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-                
-                if (!(saleDate >= startOfMonth && saleDate < nextMonth)) return false;
-            } else if (dateFilter === "year") {
-                const startOfYear = new Date(now.getFullYear(), 0, 1);
-                const nextYear = new Date(now.getFullYear() + 1, 0, 1);
-                
-                if (!(saleDate >= startOfYear && saleDate < nextYear)) return false;
-            } else if (dateFilter === "custom") {
-                if (startDate) {
-                    const start = new Date(startDate);
-                    start.setHours(0, 0, 0, 0);
-                    if (saleDate < start) return false;
-                }
-                if (endDate) {
-                    const end = new Date(endDate);
-                    end.setHours(23, 59, 59, 999);
-                    if (saleDate > end) return false;
+    const uniqueCashiers = useMemo(() => {
+        const map = new Map<string, { username: string; name: string }>();
+        sales.forEach(s => {
+            const u = s.cashierUsername || "admin";
+            const name = s.cashierName || (u === "admin" ? "Administrator" : u);
+            if (!map.has(u)) {
+                map.set(u, { username: u, name });
+            }
+        });
+        return Array.from(map.values());
+    }, [sales]);
+
+    // All sales matching the date filter (for calculating overall store sales across all users)
+    const dateFilteredSales = useMemo(() => {
+        return sales.filter(s => {
+            if (dateFilter !== "all") {
+                const saleDate = new Date(s.date);
+                const now = new Date();
+                const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const startOfTomorrow = new Date(startOfToday);
+                startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+                if (dateFilter === "day") {
+                    if (!(saleDate >= startOfToday && saleDate < startOfTomorrow)) return false;
+                } else if (dateFilter === "week") {
+                    const currentDayOfWeek = now.getDay();
+                    const startOfWeek = new Date(startOfToday);
+                    startOfWeek.setDate(startOfWeek.getDate() - currentDayOfWeek);
+                    
+                    const endOfWeek = new Date(startOfWeek);
+                    endOfWeek.setDate(endOfWeek.getDate() + 7);
+                    
+                    if (!(saleDate >= startOfWeek && saleDate < endOfWeek)) return false;
+                } else if (dateFilter === "month") {
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+                    
+                    if (!(saleDate >= startOfMonth && saleDate < nextMonth)) return false;
+                } else if (dateFilter === "year") {
+                    const startOfYear = new Date(now.getFullYear(), 0, 1);
+                    const nextYear = new Date(now.getFullYear() + 1, 0, 1);
+                    
+                    if (!(saleDate >= startOfYear && saleDate < nextYear)) return false;
+                } else if (dateFilter === "custom") {
+                    if (startDate) {
+                        const start = new Date(startDate);
+                        start.setHours(0, 0, 0, 0);
+                        if (saleDate < start) return false;
+                    }
+                    if (endDate) {
+                        const end = new Date(endDate);
+                        end.setHours(23, 59, 59, 999);
+                        if (saleDate > end) return false;
+                    }
                 }
             }
-        }
+            return true;
+        });
+    }, [sales, dateFilter, startDate, endDate]);
 
-        const customer = customers.find(c => c.id === s.customerId);
-        const searchLower = searchTerm.toLowerCase();
-        return (
-            s.id.toLowerCase().includes(searchLower) ||
-            (s.customerName || "").toLowerCase().includes(searchLower) ||
-            (customer?.name || "").toLowerCase().includes(searchLower) ||
-            s.paymentType.toLowerCase().includes(searchLower)
-        );
-    }).reverse();
+    const overallStoreTotal = useMemo(() => {
+        return dateFilteredSales.reduce((acc, s) => acc + (s.total || 0), 0);
+    }, [dateFilteredSales]);
+
+    const filteredSales = useMemo(() => {
+        return dateFilteredSales.filter(s => {
+            // Cashier Filtering
+            if (cashierFilter && cashierFilter !== "all") {
+                const cUser = s.cashierUsername || "admin";
+                if (cUser !== cashierFilter) return false;
+            }
+
+            const customer = customers.find(c => c.id === s.customerId);
+            const searchLower = searchTerm.toLowerCase();
+            return (
+                s.id.toLowerCase().includes(searchLower) ||
+                (s.customerName || "").toLowerCase().includes(searchLower) ||
+                (customer?.name || "").toLowerCase().includes(searchLower) ||
+                (s.cashierUsername || "").toLowerCase().includes(searchLower) ||
+                (s.cashierName || "").toLowerCase().includes(searchLower) ||
+                s.paymentType.toLowerCase().includes(searchLower)
+            );
+        }).slice().reverse();
+    }, [dateFilteredSales, cashierFilter, customers, searchTerm]);
 
     const totalSalesAmount = filteredSales.reduce((acc, s) => acc + (s.total || 0), 0);
     const totalPaidAmount = filteredSales.reduce((acc, s) => acc + (s.amountPaid || 0), 0);
@@ -3926,12 +4290,13 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
 
     const handleExportPDF = () => {
         if (viewMode === "sales") {
-            const headers = ["Date", "Customer", "Total", "Paid", "Type"];
+            const headers = ["Date", "Customer", "Cashier", "Total", "Paid", "Type"];
             const data = filteredSales.map(s => {
                 const customer = customers.find(c => c.id === s.customerId);
                 return [
                     formatDate(s.date),
                     s.customerName || customer?.name || "Walk-in",
+                    s.cashierName || (s.cashierUsername === "admin" ? "Administrator" : (s.cashierUsername || "Administrator")),
                     formatCurrencyPDF(s.total),
                     formatCurrencyPDF(s.amountPaid),
                     s.paymentType.toUpperCase()
@@ -3964,6 +4329,8 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                 return {
                     Date: formatDate(s.date),
                     Customer: s.customerName || customer?.name || "Walk-in",
+                    Cashier: s.cashierName || (s.cashierUsername === "admin" ? "Administrator" : (s.cashierUsername || "Administrator")),
+                    Username: s.cashierUsername || "admin",
                     Total: s.total,
                     Paid: s.amountPaid,
                     Type: s.paymentType,
@@ -4061,6 +4428,15 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                 </div>
 
                 <div className="flex gap-3">
+                    <button
+                        type="button"
+                        onClick={() => onOpenShiftHandover?.()}
+                        className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                        title="Cashier Shift Handover & Drawer Balances"
+                    >
+                        <Receipt size={15} className="text-amber-600" />
+                        <span>Shift Handover</span>
+                    </button>
                     <button onClick={handleExportPDF} className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 cursor-pointer" title="Download Report PDF">
                         <Download size={20} />
                     </button>
@@ -4104,40 +4480,123 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
             )}
 
             <div className="flex flex-col gap-4">
-                <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center">
+                <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-3 text-slate-400" size={18} />
                         <input 
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
-                            placeholder={viewMode === "sales" ? "Search by customer name, payment type or sale ID..." : "Search returns by customer name, payment type or item name..."} 
+                            placeholder={viewMode === "sales" ? "Search customer, cashier name/username, payment type or ID..." : "Search returns by customer name, payment type or item name..."} 
                             className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/10 text-sm" 
                         />
                     </div>
-                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl scroll-behavior self-start md:self-auto overflow-x-auto max-w-full shrink-0">
-                        {(["day", "all", "week", "month", "year", "custom"] as const).map((filter) => (
-                            <button
-                                key={filter}
-                                type="button"
-                                onClick={() => {
-                                    setDateFilter(filter);
-                                    if (filter !== "custom") {
-                                        setStartDate("");
-                                        setEndDate("");
-                                    }
-                                }}
-                                className={cn(
-                                    "px-3.5 py-1.5 rounded-lg text-xs font-bold capitalize transition-all whitespace-nowrap cursor-pointer",
-                                    dateFilter === filter 
-                                        ? "bg-white text-slate-900 shadow-sm shadow-slate-200" 
-                                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-                                )}
-                            >
-                                {filter === "all" ? "All Time" : filter === "day" ? "Today" : filter === "custom" ? "Custom Range" : `This ${filter}`}
-                            </button>
-                        ))}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        {/* Cashier Filter Dropdown */}
+                        {viewMode === "sales" && (
+                            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+                                <UserCheck size={16} className="text-slate-500 shrink-0" />
+                                <span className="text-xs font-bold text-slate-500 shrink-0">Cashier:</span>
+                                <select
+                                    value={cashierFilter}
+                                    onChange={e => {
+                                        setCashierFilter(e.target.value);
+                                        if (e.target.value === "all") onClearCashierFilter?.();
+                                    }}
+                                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+                                >
+                                    <option value="all">All Cashiers (Store Overall)</option>
+                                    {uniqueCashiers.map(c => (
+                                        <option key={c.username} value={c.username}>
+                                            {c.name} (@{c.username})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Date Filter Pills */}
+                        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl scroll-behavior overflow-x-auto max-w-full shrink-0">
+                            {(["day", "all", "week", "month", "year", "custom"] as const).map((filter) => (
+                                <button
+                                    key={filter}
+                                    type="button"
+                                    onClick={() => {
+                                        setDateFilter(filter);
+                                        if (filter !== "custom") {
+                                            setStartDate("");
+                                            setEndDate("");
+                                        }
+                                    }}
+                                    className={cn(
+                                        "px-3.5 py-1.5 rounded-lg text-xs font-bold capitalize transition-all whitespace-nowrap cursor-pointer",
+                                        dateFilter === filter 
+                                            ? "bg-white text-slate-900 shadow-sm shadow-slate-200" 
+                                            : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                    )}
+                                >
+                                    {filter === "all" ? "All Time" : filter === "day" ? "Today" : filter === "custom" ? "Custom Range" : `This ${filter}`}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
+
+                {/* Shift / Cashier Performance Banner */}
+                {viewMode === "sales" && (
+                    <div className="bg-white border border-slate-100 rounded-[2rem] p-5 shadow-xs grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in duration-200">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shrink-0">
+                                <DollarSign size={24} />
+                            </div>
+                            <div>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                    {cashierFilter !== "all" 
+                                        ? `Sales for ${uniqueCashiers.find(c => c.username === cashierFilter)?.name || cashierFilter}`
+                                        : "Filtered Sales (Total)"}
+                                </p>
+                                <p className="text-2xl font-black text-slate-900">{formatCurrency(totalSalesAmount)}</p>
+                                {cashierFilter !== "all" && (
+                                    <p className="text-xs text-blue-600 font-bold mt-0.5">
+                                        {overallStoreTotal > 0 ? ((totalSalesAmount / overallStoreTotal) * 100).toFixed(1) : 0}% of store period ({formatCurrency(overallStoreTotal)})
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shrink-0">
+                                <CreditCard size={24} />
+                            </div>
+                            <div>
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount Collected (Paid)</p>
+                                <p className="text-2xl font-black text-emerald-600">{formatCurrency(totalPaidAmount)}</p>
+                                <p className="text-xs text-slate-400 mt-0.5">{filteredSales.length} total receipts issued</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-start md:justify-end gap-3">
+                            {cashierFilter !== "all" ? (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCashierFilter("all");
+                                        onClearCashierFilter?.();
+                                    }}
+                                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                    <X size={14} />
+                                    <span>Reset to All Cashiers</span>
+                                </button>
+                            ) : (
+                                <div className="text-right">
+                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Store Wide Coverage</span>
+                                    <span className="text-xs font-bold text-slate-600">Showing combined sales of all cashiers</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {dateFilter === "custom" && (
                     <div className="flex flex-wrap items-center gap-3 bg-white border border-slate-100 rounded-[1.5rem] p-4 shadow-sm animate-in fade-in duration-200">
@@ -4176,11 +4635,12 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
             {viewMode === "sales" ? (
                 <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden text-sm">
                     <div className="overflow-x-auto w-full">
-                        <table className="w-full text-left min-w-[850px]">
+                        <table className="w-full text-left min-w-[950px]">
                             <thead className="bg-slate-50 border-b border-slate-100">
                                 <tr>
                                     <th className="p-4 pl-8 text-xs font-bold text-slate-400 uppercase tracking-widest">Date</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Customer</th>
+                                    <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Cashier</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Items</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest text-center">Type</th>
                                     <th className="p-4 text-xs font-bold text-slate-400 uppercase tracking-widest text-right">Total</th>
@@ -4197,6 +4657,12 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                                         <tr key={s.id} className={cn("hover:bg-slate-50/50 transition-colors", isFullyReturned && "bg-slate-50/50 opacity-60 text-slate-400")}>
                                             <td className="p-4 pl-8 text-slate-500">{formatDate(s.date)}</td>
                                             <td className="p-4 font-bold text-slate-800">{s.customerName || customer?.name || "Walk-in"}</td>
+                                            <td className="p-4">
+                                                <span className="font-bold text-slate-800 block text-xs truncate max-w-[150px]">
+                                                    {s.cashierName || (s.cashierUsername === "admin" ? "Administrator" : (s.cashierUsername || "Administrator"))}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-mono">@{s.cashierUsername || "admin"}</span>
+                                            </td>
                                             <td className="p-4 text-slate-500 max-w-[200px] truncate" title={s.items.map(i => `${i.name} (x${i.quantity})`).join(", ")}>
                                                 {s.items.map(i => i.name).join(", ")}
                                             </td>
@@ -4245,8 +4711,9 @@ function SalesHistoryView({ sales, customers, returns = [], refresh, userRole }:
                             </tbody>
                             <tfoot className="bg-slate-50 border-t border-slate-100 font-bold">
                                 <tr>
-                                    <td className="p-4 pl-8 text-slate-700 text-sm font-black" colSpan={4}>
+                                    <td className="p-4 pl-8 text-slate-700 text-sm font-black" colSpan={5}>
                                         Total for {dateFilter === "all" ? "All Time" : dateFilter === "day" ? "Today" : dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : dateFilter === "year" ? "This Year" : "Selected Range"}
+                                        {cashierFilter !== "all" && ` (${uniqueCashiers.find(c => c.username === cashierFilter)?.name || cashierFilter})`}
                                     </td>
                                     <td className="p-4 text-right text-slate-900 text-sm font-black whitespace-nowrap">{formatCurrency(totalSalesAmount)}</td>
                                     <td className="p-4 text-right text-slate-900 text-sm font-black whitespace-nowrap">{formatCurrency(totalPaidAmount)}</td>
