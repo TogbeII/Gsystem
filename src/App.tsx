@@ -126,6 +126,66 @@ const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
 // --- Views ---
 
+export const checkPermission = {
+  barcodeStudio: (user: User | null | undefined): boolean => {
+    if (!user) return false;
+    if (user.username === "genesys_owner") return true;
+    if (user.permissions?.inventory?.barcodeStudio !== undefined) {
+      return !!user.permissions.inventory.barcodeStudio;
+    }
+    return user.role === "admin" || user.role === "manager";
+  },
+  warehouseStock: (user: User | null | undefined): boolean => {
+    if (!user) return false;
+    if (user.username === "genesys_owner") return true;
+    if (user.permissions?.inventory?.warehouseView !== undefined) {
+      return !!user.permissions.inventory.warehouseView;
+    }
+    return user.role === "admin" || user.role === "manager";
+  },
+  shiftHandover: (user: User | null | undefined): boolean => {
+    if (!user) return false;
+    if (user.username === "genesys_owner") return true;
+    if (user.permissions?.sales?.shiftHandover !== undefined) {
+      return !!user.permissions.sales.shiftHandover;
+    }
+    return user.role === "admin" || user.role === "manager" || !!user.permissions?.sales?.create;
+  },
+  adminPanel: (user: User | null | undefined): boolean => {
+    if (!user) return false;
+    if (user.username === "genesys_owner") return true;
+    if (user.permissions?.admin?.view !== undefined) {
+      return !!user.permissions.admin.view;
+    }
+    return user.role === "admin";
+  }
+};
+
+function AccessDeniedView({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center"
+    >
+      <div className="w-20 h-20 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-center text-rose-600 mb-6 shadow-sm">
+        <Lock size={36} />
+      </div>
+      <h2 className="text-2xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+      <p className="text-slate-500 max-w-md mb-6 text-sm">
+        You do not have permission to view or access <strong className="text-slate-700">{title}</strong>. 
+        Please contact your system administrator to adjust your account permissions.
+      </p>
+      <button
+        onClick={onBack}
+        className="px-6 py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer"
+      >
+        Return to Dashboard
+      </button>
+    </motion.div>
+  );
+}
+
 export default function App() {
   const [step, setStep] = useState<"LOADING" | "LICENSE" | "BUSINESS_SETUP" | "ADMIN_SETUP" | "LOGIN" | "APP">("LOADING");
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -391,12 +451,14 @@ export default function App() {
 
         <nav className="flex-1 px-4 space-y-2 py-4 overflow-y-auto custom-scrollbar">
           <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} collapsed={isSidebarCollapsed} />
-          <SidebarItem icon={ScanLine} label="Barcode Studio" active={activeTab === "barcode_scanner"} onClick={() => setActiveTab("barcode_scanner")} collapsed={isSidebarCollapsed} />
+          {checkPermission.barcodeStudio(user) && (
+            <SidebarItem icon={ScanLine} label="Barcode Studio" active={activeTab === "barcode_scanner"} onClick={() => setActiveTab("barcode_scanner")} collapsed={isSidebarCollapsed} />
+          )}
           {user?.permissions?.inventory.view && (
-            <>
-              <SidebarItem icon={Package} label="Shop Inventory" active={activeTab === "shop_inventory"} onClick={() => setActiveTab("shop_inventory")} collapsed={isSidebarCollapsed} />
-              <SidebarItem icon={WarehouseIcon} label="Warehouse Stock" active={activeTab === "warehouse_inventory"} onClick={() => setActiveTab("warehouse_inventory")} collapsed={isSidebarCollapsed} />
-            </>
+            <SidebarItem icon={Package} label="Shop Inventory" active={activeTab === "shop_inventory"} onClick={() => setActiveTab("shop_inventory")} collapsed={isSidebarCollapsed} />
+          )}
+          {checkPermission.warehouseStock(user) && (
+            <SidebarItem icon={WarehouseIcon} label="Warehouse Stock" active={activeTab === "warehouse_inventory"} onClick={() => setActiveTab("warehouse_inventory")} collapsed={isSidebarCollapsed} />
           )}
           {user?.permissions?.sales.create && (
             <>
@@ -413,7 +475,7 @@ export default function App() {
           {user?.permissions?.customers.view && (
             <SidebarItem icon={Users} label="Customers" active={activeTab === "customers"} onClick={() => setActiveTab("customers")} collapsed={isSidebarCollapsed} />
           )}
-          {user?.permissions?.admin.view && (
+          {checkPermission.adminPanel(user) && (
             <SidebarItem icon={Settings} label="Admin Panel" active={activeTab === "admin"} onClick={() => setActiveTab("admin")} collapsed={isSidebarCollapsed} />
           )}
         </nav>
@@ -436,29 +498,33 @@ export default function App() {
                 {license?.type === "TRIAL" && (
                     <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter animate-pulse shadow-sm shadow-red-200">Trial Version</span>
                 )}
-                <button
-                  onClick={() => setActiveTab("barcode_scanner")}
-                  className={cn(
-                    "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer",
-                    activeTab === "barcode_scanner"
-                      ? "bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200"
-                      : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                  )}
-                  title="Open Barcode Studio & Scanner Hub"
-                >
-                  <ScanLine size={14} />
-                  <span>Barcode Studio</span>
-                </button>
+                {checkPermission.barcodeStudio(user) && (
+                  <button
+                    onClick={() => setActiveTab("barcode_scanner")}
+                    className={cn(
+                      "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer",
+                      activeTab === "barcode_scanner"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200"
+                        : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+                    )}
+                    title="Open Barcode Studio & Scanner Hub"
+                  >
+                    <ScanLine size={14} />
+                    <span>Barcode Studio</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => setShowShiftModal(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-2xs cursor-pointer"
-                  title="Cashier Shift Handover & Drawer Balancing"
-                >
-                  <Receipt size={14} className="text-amber-600" />
-                  <span className="hidden sm:inline">Shift Handover</span>
-                </button>
+                {checkPermission.shiftHandover(user) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowShiftModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 shadow-2xs cursor-pointer"
+                    title="Cashier Shift Handover & Drawer Balancing"
+                  >
+                    <Receipt size={14} className="text-amber-600" />
+                    <span className="hidden sm:inline">Shift Handover</span>
+                  </button>
+                )}
             </div>
             
             <div className="flex items-center gap-6">
@@ -498,16 +564,34 @@ export default function App() {
                   onNavigate={setActiveTab} 
                   user={user} 
                   onOpenManual={() => setShowUserManual(true)} 
-                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                  onOpenShiftHandover={checkPermission.shiftHandover(user) ? () => setShowShiftModal(true) : undefined}
                   onFilterCashierSales={(cashierUser) => {
                     setSelectedCashierForHistory(cashierUser);
                     setActiveTab("sales");
                   }}
                 />
               )}
-              {activeTab === "barcode_scanner" && <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />}
-              {activeTab === "shop_inventory" && user?.permissions?.inventory.view && <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
-              {activeTab === "warehouse_inventory" && user?.permissions?.inventory.view && <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />}
+              {activeTab === "barcode_scanner" && (
+                checkPermission.barcodeStudio(user) ? (
+                  <BarcodeScannerHubView key="barcode_hub" products={products} refresh={fetchData} user={user} config={config} onNavigateToPOS={() => setActiveTab("pos")} />
+                ) : (
+                  <AccessDeniedView title="Barcode Studio" onBack={() => setActiveTab("dashboard")} />
+                )
+              )}
+              {activeTab === "shop_inventory" && (
+                user?.permissions?.inventory.view ? (
+                  <ShopInventoryView key="shop_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />
+                ) : (
+                  <AccessDeniedView title="Shop Inventory" onBack={() => setActiveTab("dashboard")} />
+                )
+              )}
+              {activeTab === "warehouse_inventory" && (
+                checkPermission.warehouseStock(user) ? (
+                  <WarehouseInventoryView key="wh_inv" products={products} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} onNavigate={setActiveTab} warehouses={warehouses} refreshWarehouses={fetchWarehouses} />
+                ) : (
+                  <AccessDeniedView title="Warehouse Stock" onBack={() => setActiveTab("dashboard")} />
+                )
+              )}
               {activeTab === "pos" && user?.permissions?.sales.create && (
                 <POSView 
                   key="pos" 
@@ -517,7 +601,7 @@ export default function App() {
                   businessName={config.businessName} 
                   currentUser={user}
                   sales={sales}
-                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                  onOpenShiftHandover={checkPermission.shiftHandover(user) ? () => setShowShiftModal(true) : undefined}
                 />
               )}
               {activeTab === "invoices" && user?.permissions?.sales.create && <InvoiceMenuView key="inv_menu" products={products} refresh={fetchData} config={config} />}
@@ -529,15 +613,22 @@ export default function App() {
                   returns={returns} 
                   refresh={fetchData} 
                   userRole={user?.role} 
+                  userPermissions={user?.permissions}
                   currentUser={user}
                   businessName={config.businessName}
                   initialCashierFilter={selectedCashierForHistory}
-                  onOpenShiftHandover={() => setShowShiftModal(true)}
+                  onOpenShiftHandover={checkPermission.shiftHandover(user) ? () => setShowShiftModal(true) : undefined}
                 />
               )}
               {activeTab === "credit" && user?.permissions?.credit.view && <CreditView key="cred" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
               {activeTab === "customers" && user?.permissions?.customers.view && <CustomerView key="cust" customers={customers} refresh={fetchData} userPermissions={user?.permissions} />}
-              {activeTab === "admin" && user?.permissions?.admin.view && <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} config={config} setConfig={setConfig} />}
+              {activeTab === "admin" && (
+                checkPermission.adminPanel(user) ? (
+                  <AdminView key="adm" user={user} refresh={fetchData} userRole={user?.role} userPermissions={user?.permissions} license={license} config={config} setConfig={setConfig} />
+                ) : (
+                  <AccessDeniedView title="Admin Panel" onBack={() => setActiveTab("dashboard")} />
+                )
+              )}
            </AnimatePresence>
 
            {/* License Reminder Modal */}
@@ -587,19 +678,21 @@ export default function App() {
         businessName={config.businessName || "Genesys Retail & Warehouse"}
       />
 
-      <ShiftHandoverModal
-        isOpen={showShiftModal}
-        onClose={() => setShowShiftModal(false)}
-        currentUser={user}
-        sales={sales}
-        businessName={config.businessName || "Genesys Retail"}
-        onShiftClosed={() => {
-          fetchData();
-        }}
-        onSignOutAfterClose={() => {
-          handleSignOut();
-        }}
-      />
+      {showShiftModal && checkPermission.shiftHandover(user) && (
+        <ShiftHandoverModal
+          isOpen={showShiftModal}
+          onClose={() => setShowShiftModal(false)}
+          currentUser={user}
+          sales={sales}
+          businessName={config.businessName || "Genesys Retail"}
+          onShiftClosed={() => {
+            fetchData();
+          }}
+          onSignOutAfterClose={() => {
+            handleSignOut();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -963,12 +1056,14 @@ function DashboardView({
                     >
                         <BookOpen size={16} className="text-blue-600" /> User Manual (PDF)
                     </button>
-                    <button
-                        onClick={() => onNavigate("barcode_scanner")}
-                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-xs cursor-pointer"
-                    >
-                        <ScanLine size={16} /> Barcode Studio
-                    </button>
+                    {checkPermission.barcodeStudio(user) && (
+                        <button
+                            onClick={() => onNavigate("barcode_scanner")}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-4 py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center gap-2 shadow-xs cursor-pointer"
+                        >
+                            <ScanLine size={16} /> Barcode Studio
+                        </button>
+                    )}
                     {user?.permissions?.sales.create && (
                         <button
                             onClick={() => onNavigate("pos")}
@@ -1044,7 +1139,7 @@ function DashboardView({
                     color="bg-amber-500" 
                     sublabel="Items under 200 units"
                     onClick={() => {
-                        if (user?.permissions?.inventory.view) {
+                        if (checkPermission.warehouseStock(user)) {
                             onNavigate("warehouse_inventory");
                         } else {
                             alert("Access denied. You do not have permission to view Warehouse Inventory.");
@@ -1057,7 +1152,13 @@ function DashboardView({
                     value={stats.barcodedProducts} 
                     color="bg-purple-600" 
                     sublabel={`${products.length - stats.barcodedProducts} missing barcodes`}
-                    onClick={() => onNavigate("barcode_scanner")}
+                    onClick={() => {
+                        if (checkPermission.barcodeStudio(user)) {
+                            onNavigate("barcode_scanner");
+                        } else {
+                            alert("Access denied. You do not have permission to access Barcode Studio.");
+                        }
+                    }}
                 />
             </div>
 
@@ -1110,14 +1211,16 @@ function DashboardView({
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <button
-                            type="button"
-                            onClick={() => onOpenShiftHandover?.()}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
-                        >
-                            <Receipt size={14} className="text-amber-600" />
-                            <span>Shift Handover</span>
-                        </button>
+                        {onOpenShiftHandover && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenShiftHandover()}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                            >
+                                <Receipt size={14} className="text-amber-600" />
+                                <span>Shift Handover</span>
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => onNavigate("sales")}
@@ -1234,7 +1337,8 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
     const [showWarehouseManager, setShowWarehouseManager] = useState(false);
-    const canDelete = userRole === "admin";
+    const canDelete = userPermissions ? !!userPermissions.inventory?.delete : userRole === "admin";
+    const canEdit = userPermissions ? !!userPermissions.inventory?.edit : userRole === "admin";
     const [form, setForm] = useState({ 
         name: "", category: products[0]?.category || "Safety Vests", price: "", 
         shopStock: "", warehouseStock: "", 
@@ -1326,7 +1430,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                     <p className="text-slate-500">Stock available for immediate sale at the shop</p>
                 </div>
                 <div className="flex gap-3">
-                    {onNavigate && (
+                    {onNavigate && (userPermissions?.inventory?.barcodeStudio !== undefined ? !!userPermissions.inventory.barcodeStudio : (userRole === "admin" || userRole === "manager")) && (
                         <button 
                             onClick={() => onNavigate("barcode_scanner")} 
                             title="Barcode Scanner & Labels Studio" 
@@ -1448,7 +1552,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                         <td className="p-4 text-right font-bold text-slate-900">{formatCurrency(p.price)}</td>
                                         <td className="p-4 text-right pr-8">
                                             <div className="flex justify-end gap-2">
-                                                {userRole === "admin" && (
+                                                {canEdit && (
                                                     <button 
                                                         onClick={() => {
                                                             setEditingProduct(p);
@@ -1778,7 +1882,7 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                 warehouses={warehouses || []}
                 products={products}
                 refreshWarehouses={refreshWarehouses || (() => {})}
-                canManage={userRole === "admin"}
+                canManage={userPermissions ? (userPermissions.inventory?.create || userPermissions.inventory?.edit || userRole === "admin") : userRole === "admin"}
             />
         </motion.div>
     );
@@ -1789,7 +1893,8 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
     const [transferModal, setTransferModal] = useState<Product | null>(null);
     const [confirmDeleteProduct, setConfirmDeleteProduct] = useState<Product | null>(null);
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
-    const canDelete = userRole === "admin";
+    const canDelete = userPermissions ? !!userPermissions.inventory?.delete : userRole === "admin";
+    const canEdit = userPermissions ? !!userPermissions.inventory?.edit : userRole === "admin";
     const [addModal, setAddModal] = useState(false);
     const [linkingProduct, setLinkingProduct] = useState<Product | null>(null);
     const [editingWarehouseProduct, setEditingWarehouseProduct] = useState<Product | null>(null);
@@ -1925,7 +2030,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                     <p className="text-slate-500">Manage bulk stock across multiple warehouses and move to shop floor</p>
                 </div>
                 <div className="flex gap-3">
-                    {onNavigate && (
+                    {onNavigate && (userPermissions?.inventory?.barcodeStudio !== undefined ? !!userPermissions.inventory.barcodeStudio : (userRole === "admin" || userRole === "manager")) && (
                         <button 
                             onClick={() => onNavigate("barcode_scanner")} 
                             title="Barcode Scanner & Labels Studio" 
@@ -2151,7 +2256,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                     <ArrowLeftRight size={18} />
                                     Move to Shop
                                 </button>
-                                {userRole === "admin" && (
+                                {canEdit && (
                                     <button 
                                         onClick={() => {
                                             setEditingWarehouseProduct(p);
@@ -2593,7 +2698,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                 warehouses={warehouses || []}
                 products={products}
                 refreshWarehouses={refreshWarehouses || (() => {})}
-                canManage={userRole === "admin"}
+                canManage={userPermissions ? (userPermissions.inventory?.create || userPermissions.inventory?.edit || userRole === "admin") : userRole === "admin"}
             />
         </motion.div>
     );
@@ -3289,15 +3394,17 @@ function POSView({
                             </button>
 
                             {/* Shift Handover Button */}
-                            <button
-                                type="button"
-                                onClick={() => onOpenShiftHandover?.()}
-                                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                                title="Open Shift Handover & Sales Totals"
-                            >
-                                <Receipt size={15} className="text-amber-600" />
-                                <span className="hidden sm:inline">Shift Handover</span>
-                            </button>
+                            {onOpenShiftHandover && (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenShiftHandover()}
+                                    className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                                    title="Open Shift Handover & Sales Totals"
+                                >
+                                    <Receipt size={15} className="text-amber-600" />
+                                    <span className="hidden sm:inline">Shift Handover</span>
+                                </button>
+                            )}
 
                             {/* Search Box */}
                             <div className="relative w-64 md:w-72">
@@ -3386,14 +3493,16 @@ function POSView({
                                 </span>
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => onOpenShiftHandover?.()}
-                            className="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200 cursor-pointer shrink-0"
-                            title="View Shift Total & Handover"
-                        >
-                            Shift Total
-                        </button>
+                        {onOpenShiftHandover && (
+                            <button
+                                type="button"
+                                onClick={() => onOpenShiftHandover()}
+                                className="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200 cursor-pointer shrink-0"
+                                title="View Shift Total & Handover"
+                            >
+                                Shift Total
+                            </button>
+                        )}
                     </div>
 
                     {lastScannedItem && (
@@ -4106,6 +4215,7 @@ function SalesHistoryView({
     returns = [], 
     refresh, 
     userRole,
+    userPermissions,
     currentUser,
     businessName,
     initialCashierFilter = "",
@@ -4117,6 +4227,7 @@ function SalesHistoryView({
     returns?: any[], 
     refresh?: () => void | Promise<void>, 
     userRole?: string,
+    userPermissions?: UserPermissions,
     currentUser?: any,
     businessName?: string,
     initialCashierFilter?: string,
@@ -4428,15 +4539,17 @@ function SalesHistoryView({
                 </div>
 
                 <div className="flex gap-3">
-                    <button
-                        type="button"
-                        onClick={() => onOpenShiftHandover?.()}
-                        className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                        title="Cashier Shift Handover & Drawer Balances"
-                    >
-                        <Receipt size={15} className="text-amber-600" />
-                        <span>Shift Handover</span>
-                    </button>
+                    {onOpenShiftHandover && (
+                        <button
+                            type="button"
+                            onClick={() => onOpenShiftHandover()}
+                            className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                            title="Cashier Shift Handover & Drawer Balances"
+                        >
+                            <Receipt size={15} className="text-amber-600" />
+                            <span>Shift Handover</span>
+                        </button>
+                    )}
                     <button onClick={handleExportPDF} className="p-3 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 cursor-pointer" title="Download Report PDF">
                         <Download size={20} />
                     </button>
@@ -4686,7 +4799,7 @@ function SalesHistoryView({
                                                 )}
                                             </td>
                                             <td className="p-4 text-center pr-8">
-                                                {userRole === "admin" && (
+                                                {(userRole === "admin" || userPermissions?.sales.history) && (
                                                     <button 
                                                         type="button"
                                                     onClick={() => {
@@ -5514,11 +5627,57 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
 }
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
-    inventory: { view: true, create: false, edit: false, delete: false },
+    inventory: { view: true, create: false, edit: false, delete: false, warehouseView: false, barcodeStudio: false },
     customers: { view: true, create: true, edit: false, delete: false },
-    sales: { view: true, create: true, history: false },
+    sales: { view: true, create: true, history: false, shiftHandover: false },
     credit: { view: true, payment: false },
     admin: { view: false, users: false, settings: false },
+};
+
+const ROLE_PRESET_PERMISSIONS: Record<string, UserPermissions> = {
+    admin: {
+        inventory: { view: true, create: true, edit: true, delete: true, warehouseView: true, barcodeStudio: true },
+        customers: { view: true, create: true, edit: true, delete: true },
+        sales: { view: true, create: true, history: true, shiftHandover: true },
+        credit: { view: true, payment: true },
+        admin: { view: true, users: true, settings: true },
+    },
+    manager: {
+        inventory: { view: true, create: true, edit: true, delete: false, warehouseView: true, barcodeStudio: true },
+        customers: { view: true, create: true, edit: true, delete: false },
+        sales: { view: true, create: true, history: true, shiftHandover: true },
+        credit: { view: true, payment: true },
+        admin: { view: true, users: false, settings: false },
+    },
+    user: {
+        inventory: { view: true, create: false, edit: false, delete: false, warehouseView: false, barcodeStudio: false },
+        customers: { view: true, create: true, edit: false, delete: false },
+        sales: { view: true, create: true, history: false, shiftHandover: true },
+        credit: { view: true, payment: false },
+        admin: { view: false, users: false, settings: false },
+    },
+};
+
+const PERMISSION_LABELS: Record<string, string> = {
+    "inventory.view": "Shop Inventory",
+    "inventory.warehouseView": "Warehouse Stock",
+    "inventory.barcodeStudio": "Barcode Studio",
+    "inventory.create": "Add Products",
+    "inventory.edit": "Edit Stock/Products",
+    "inventory.delete": "Delete Products",
+    "customers.view": "View Customers",
+    "customers.create": "Add Customers",
+    "customers.edit": "Edit Customers",
+    "customers.delete": "Delete Customers",
+    "sales.view": "View Sales",
+    "sales.create": "POS Register (Sales)",
+    "sales.history": "Sales History",
+    "sales.shiftHandover": "Shift Handover",
+    "credit.view": "View Debtors",
+    "credit.payment": "Accept Debt Payments",
+    "admin.view": "Admin Panel Access",
+    "admin.users": "Manage Users",
+    "admin.settings": "Business Settings",
 };
 
 function UserManagementView({ currentUser }: { currentUser: User | null }) {
@@ -5621,9 +5780,14 @@ function UserManagementView({ currentUser }: { currentUser: User | null }) {
                                     )}>{u.role}</span>
                                 </td>
                                 <td className="p-4 space-x-1">
-                                    {u.permissions?.inventory.create && <span title="Inventory Write" className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>}
-                                    {u.permissions?.sales.create && <span title="POS Sales" className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>}
-                                    {u.permissions?.admin.users && <span title="User Management" className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>}
+                                    {u.permissions?.inventory?.view && <span title="Shop Inventory" className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>}
+                                    {u.permissions?.inventory?.warehouseView && <span title="Warehouse Stock" className="w-2 h-2 rounded-full bg-cyan-500 inline-block"></span>}
+                                    {u.permissions?.inventory?.barcodeStudio && <span title="Barcode Studio" className="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>}
+                                    {u.permissions?.inventory?.edit && <span title="Inventory Edit" className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>}
+                                    {u.permissions?.inventory?.delete && <span title="Inventory Delete" className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>}
+                                    {u.permissions?.sales?.create && <span title="POS Sales" className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>}
+                                    {u.permissions?.sales?.shiftHandover && <span title="Shift Handover" className="w-2 h-2 rounded-full bg-amber-600 inline-block"></span>}
+                                    {u.permissions?.admin?.view && <span title="Admin Panel" className="w-2 h-2 rounded-full bg-rose-600 inline-block"></span>}
                                 </td>
                                 <td className="p-4 text-right pr-6">
                                     <button onClick={() => {
@@ -5672,7 +5836,23 @@ function UserManagementView({ currentUser }: { currentUser: User | null }) {
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-500 uppercase">Base Role</label>
-                                    <select value={form.role} onChange={e => setForm({...form, role: e.target.value as any})} className="w-full p-3 bg-slate-50 border rounded-xl">
+                                    <select 
+                                        value={form.role} 
+                                        onChange={e => {
+                                            const newRole = e.target.value as "user" | "manager" | "admin";
+                                            // When creating a new user, automatically populate default preset permissions for the selected role
+                                            if (!editingUser && ROLE_PRESET_PERMISSIONS[newRole]) {
+                                                setForm({
+                                                    ...form,
+                                                    role: newRole,
+                                                    permissions: JSON.parse(JSON.stringify(ROLE_PRESET_PERMISSIONS[newRole]))
+                                                });
+                                            } else {
+                                                setForm({...form, role: newRole});
+                                            }
+                                        }} 
+                                        className="w-full p-3 bg-slate-50 border rounded-xl"
+                                    >
                                         <option value="user">User</option>
                                         <option value="manager">Manager</option>
                                         <option value="admin">Administrator</option>
@@ -5685,11 +5865,21 @@ function UserManagementView({ currentUser }: { currentUser: User | null }) {
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                                     {/* Inventory */}
                                     <div className="space-y-2">
-                                        <p className="text-xs font-bold text-blue-600 uppercase">Inventory</p>
+                                        <p className="text-xs font-bold text-blue-600 uppercase">Inventory & Stock</p>
                                         {Object.keys(form.permissions?.inventory || DEFAULT_PERMISSIONS.inventory).map(perm => (
                                             <label key={`inv-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
-                                                <input type="checkbox" checked={((form.permissions?.inventory || DEFAULT_PERMISSIONS.inventory) as any)[perm]} onChange={() => togglePermission(`inventory.${perm}`)} className="rounded text-blue-600" />
-                                                <span className="text-xs capitalize">{perm}</span>
+                                                <input type="checkbox" checked={!!((form.permissions?.inventory || DEFAULT_PERMISSIONS.inventory) as any)[perm]} onChange={() => togglePermission(`inventory.${perm}`)} className="rounded text-blue-600" />
+                                                <span className="text-xs">{PERMISSION_LABELS[`inventory.${perm}`] || perm}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    {/* Sales */}
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-bold text-blue-600 uppercase">Sales & Register</p>
+                                        {Object.keys(form.permissions?.sales || DEFAULT_PERMISSIONS.sales).map(perm => (
+                                            <label key={`sales-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
+                                                <input type="checkbox" checked={!!((form.permissions?.sales || DEFAULT_PERMISSIONS.sales) as any)[perm]} onChange={() => togglePermission(`sales.${perm}`)} className="rounded text-blue-600" />
+                                                <span className="text-xs">{PERMISSION_LABELS[`sales.${perm}`] || perm}</span>
                                             </label>
                                         ))}
                                     </div>
@@ -5698,18 +5888,18 @@ function UserManagementView({ currentUser }: { currentUser: User | null }) {
                                         <p className="text-xs font-bold text-blue-600 uppercase">Customers</p>
                                         {Object.keys(form.permissions?.customers || DEFAULT_PERMISSIONS.customers).map(perm => (
                                             <label key={`cust-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
-                                                <input type="checkbox" checked={((form.permissions?.customers || DEFAULT_PERMISSIONS.customers) as any)[perm]} onChange={() => togglePermission(`customers.${perm}`)} className="rounded text-blue-600" />
-                                                <span className="text-xs capitalize">{perm}</span>
+                                                <input type="checkbox" checked={!!((form.permissions?.customers || DEFAULT_PERMISSIONS.customers) as any)[perm]} onChange={() => togglePermission(`customers.${perm}`)} className="rounded text-blue-600" />
+                                                <span className="text-xs">{PERMISSION_LABELS[`customers.${perm}`] || perm}</span>
                                             </label>
                                         ))}
                                     </div>
-                                    {/* Sales */}
+                                    {/* Credit */}
                                     <div className="space-y-2">
-                                        <p className="text-xs font-bold text-blue-600 uppercase">Sales & History</p>
-                                        {Object.keys(form.permissions?.sales || DEFAULT_PERMISSIONS.sales).map(perm => (
-                                            <label key={`sales-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
-                                                <input type="checkbox" checked={((form.permissions?.sales || DEFAULT_PERMISSIONS.sales) as any)[perm]} onChange={() => togglePermission(`sales.${perm}`)} className="rounded text-blue-600" />
-                                                <span className="text-xs capitalize">{perm}</span>
+                                        <p className="text-xs font-bold text-amber-600 uppercase">Credit / Debtors</p>
+                                        {Object.keys(form.permissions?.credit || DEFAULT_PERMISSIONS.credit).map(perm => (
+                                            <label key={`credit-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
+                                                <input type="checkbox" checked={!!((form.permissions?.credit || DEFAULT_PERMISSIONS.credit) as any)[perm]} onChange={() => togglePermission(`credit.${perm}`)} className="rounded text-blue-600" />
+                                                <span className="text-xs">{PERMISSION_LABELS[`credit.${perm}`] || perm}</span>
                                             </label>
                                         ))}
                                     </div>
@@ -5718,8 +5908,8 @@ function UserManagementView({ currentUser }: { currentUser: User | null }) {
                                         <p className="text-xs font-bold text-red-600 uppercase">System Admin</p>
                                         {Object.keys(form.permissions?.admin || DEFAULT_PERMISSIONS.admin).map(perm => (
                                             <label key={`adm-${perm}`} className="flex items-center gap-2 cursor-pointer transition-all hover:bg-slate-50 p-1 rounded">
-                                                <input type="checkbox" checked={((form.permissions?.admin || DEFAULT_PERMISSIONS.admin) as any)[perm]} onChange={() => togglePermission(`admin.${perm}`)} className="rounded text-blue-600" />
-                                                <span className="text-xs capitalize">{perm}</span>
+                                                <input type="checkbox" checked={!!((form.permissions?.admin || DEFAULT_PERMISSIONS.admin) as any)[perm]} onChange={() => togglePermission(`admin.${perm}`)} className="rounded text-blue-600" />
+                                                <span className="text-xs">{PERMISSION_LABELS[`admin.${perm}`] || perm}</span>
                                             </label>
                                         ))}
                                     </div>

@@ -1,9 +1,21 @@
 export type UserRole = "admin" | "user" | "manager";
 
 export interface UserPermissions {
-  inventory: { view: boolean; create: boolean; edit: boolean; delete: boolean };
+  inventory: { 
+    view: boolean; 
+    warehouseView?: boolean; 
+    barcodeStudio?: boolean; 
+    create: boolean; 
+    edit: boolean; 
+    delete: boolean;
+  };
   customers: { view: boolean; create: boolean; edit: boolean; delete: boolean };
-  sales: { view: boolean; create: boolean; history: boolean };
+  sales: { 
+    view: boolean; 
+    create: boolean; 
+    history: boolean;
+    shiftHandover?: boolean;
+  };
   credit: { view: boolean; payment: boolean };
   admin: { view: boolean; users: boolean; settings: boolean };
 }

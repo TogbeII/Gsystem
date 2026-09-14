@@ -74,23 +74,23 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
 // Default permissions helper
 const DEFAULT_PERMISSIONS = {
   admin: {
-    inventory: { view: true, create: true, edit: true, delete: true },
+    inventory: { view: true, warehouseView: true, barcodeStudio: true, create: true, edit: true, delete: true },
     customers: { view: true, create: true, edit: true, delete: true },
-    sales: { view: true, create: true, history: true },
+    sales: { view: true, create: true, history: true, shiftHandover: true },
     credit: { view: true, payment: true },
     admin: { view: true, users: true, settings: true },
   },
   manager: {
-    inventory: { view: true, create: true, edit: true, delete: false },
+    inventory: { view: true, warehouseView: true, barcodeStudio: true, create: true, edit: true, delete: false },
     customers: { view: true, create: true, edit: true, delete: false },
-    sales: { view: true, create: true, history: true },
+    sales: { view: true, create: true, history: true, shiftHandover: true },
     credit: { view: true, payment: true },
     admin: { view: true, users: false, settings: false },
   },
   user: {
-    inventory: { view: true, create: false, edit: false, delete: false },
+    inventory: { view: true, warehouseView: false, barcodeStudio: false, create: false, edit: false, delete: false },
     customers: { view: true, create: true, edit: false, delete: false },
-    sales: { view: true, create: true, history: false },
+    sales: { view: true, create: true, history: false, shiftHandover: true },
     credit: { view: true, payment: false },
     admin: { view: false, users: false, settings: false },
   },
@@ -1624,7 +1624,16 @@ app.post("/api/login", async (req, res) => {
   }
 
   const role: "admin" | "manager" | "user" = user.role || "user";
-  const userPermissions = user.permissions || DEFAULT_PERMISSIONS[role] || DEFAULT_PERMISSIONS.user;
+  const baseDefault = DEFAULT_PERMISSIONS[role] || DEFAULT_PERMISSIONS.user;
+  const userPermissions = {
+    ...baseDefault,
+    ...(user.permissions || {}),
+    inventory: { ...baseDefault.inventory, ...(user.permissions?.inventory || {}) },
+    customers: { ...baseDefault.customers, ...(user.permissions?.customers || {}) },
+    sales: { ...baseDefault.sales, ...(user.permissions?.sales || {}) },
+    credit: { ...baseDefault.credit, ...(user.permissions?.credit || {}) },
+    admin: { ...baseDefault.admin, ...(user.permissions?.admin || {}) },
+  };
 
   res.json({ 
     user: { 
@@ -1659,9 +1668,18 @@ app.get("/api/users", async (req, res) => {
   // Strip password field before sending user list to front-end for extra security
   const usersWithPerms = usersToReturn.map((u: any) => {
     const { password, ...uWithoutPwd } = u;
+    const roleDefault = DEFAULT_PERMISSIONS[uWithoutPwd.role as keyof typeof DEFAULT_PERMISSIONS] || DEFAULT_PERMISSIONS.user;
     return {
       ...uWithoutPwd,
-      permissions: uWithoutPwd.permissions || DEFAULT_PERMISSIONS[uWithoutPwd.role as keyof typeof DEFAULT_PERMISSIONS] || DEFAULT_PERMISSIONS.user
+      permissions: {
+        ...roleDefault,
+        ...(uWithoutPwd.permissions || {}),
+        inventory: { ...roleDefault.inventory, ...(uWithoutPwd.permissions?.inventory || {}) },
+        customers: { ...roleDefault.customers, ...(uWithoutPwd.permissions?.customers || {}) },
+        sales: { ...roleDefault.sales, ...(uWithoutPwd.permissions?.sales || {}) },
+        credit: { ...roleDefault.credit, ...(uWithoutPwd.permissions?.credit || {}) },
+        admin: { ...roleDefault.admin, ...(uWithoutPwd.permissions?.admin || {}) },
+      }
     };
   });
   res.json(usersWithPerms);
