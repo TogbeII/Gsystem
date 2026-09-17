@@ -113,16 +113,29 @@ const Tile = ({ icon: Icon, label, color, onClick, value, sublabel }: any) => (
 let activeUsername: string | null = null;
 let activeLicenseKey: string | null = null;
 
-const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const headers = new Headers(init?.headers);
-  if (activeUsername && !headers.has("X-User")) {
-    headers.set("X-User", activeUsername);
+// Initialize active credentials from sessionStorage if restored
+if (typeof window !== "undefined") {
+  try {
+    activeUsername = sessionStorage.getItem("genesys_active_username") || null;
+    activeLicenseKey = sessionStorage.getItem("genesys_active_license_key") || null;
+  } catch (e) {}
+
+  // Globally intercept window.fetch so ALL components, modals, and helper utilities automatically send X-User and X-License-Key
+  if (!(window as any).__genesysFetchPatched) {
+    (window as any).__genesysFetchPatched = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (activeUsername && !headers.has("X-User")) {
+        headers.set("X-User", activeUsername);
+      }
+      if (activeLicenseKey && !headers.has("X-License-Key")) {
+        headers.set("X-License-Key", activeLicenseKey);
+      }
+      return originalFetch(input, { ...init, headers });
+    };
   }
-  if (activeLicenseKey && !headers.has("X-License-Key")) {
-    headers.set("X-License-Key", activeLicenseKey);
-  }
-  return window.fetch(input, { ...init, headers });
-};
+}
 
 // --- Views ---
 
@@ -203,6 +216,17 @@ export default function App() {
   useEffect(() => {
     activeUsername = user?.username || null;
     activeLicenseKey = (user as any)?.tenantLicenseKey || null;
+    try {
+      if (user?.username) {
+        sessionStorage.setItem("genesys_active_username", user.username);
+        if ((user as any)?.tenantLicenseKey) {
+          sessionStorage.setItem("genesys_active_license_key", (user as any).tenantLicenseKey);
+        }
+      } else {
+        sessionStorage.removeItem("genesys_active_username");
+        sessionStorage.removeItem("genesys_active_license_key");
+      }
+    } catch (e) {}
   }, [user]);
 
   // App State
@@ -212,11 +236,13 @@ export default function App() {
   const [returns, setReturns] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
-  const fetchWarehouses = async () => {
+  const fetchWarehouses = async (): Promise<void> => {
     try {
       const res = await fetch("/api/warehouses");
       const data = await res.json();
-      if (Array.isArray(data)) setWarehouses(data);
+      if (Array.isArray(data)) {
+        setWarehouses(data);
+      }
     } catch (err) {
       console.error("fetchWarehouses failed:", err);
     }
@@ -351,6 +377,12 @@ export default function App() {
     if (res.ok) {
       activeUsername = data.user.username;
       activeLicenseKey = data.user.tenantLicenseKey || null;
+      try {
+        sessionStorage.setItem("genesys_active_username", data.user.username);
+        if (data.user.tenantLicenseKey) {
+          sessionStorage.setItem("genesys_active_license_key", data.user.tenantLicenseKey);
+        }
+      } catch (e) {}
       setUser(data.user);
       
       try {
@@ -378,6 +410,10 @@ export default function App() {
   const handleSignOut = () => {
     activeUsername = null;
     activeLicenseKey = null;
+    try {
+      sessionStorage.removeItem("genesys_active_username");
+      sessionStorage.removeItem("genesys_active_license_key");
+    } catch (e) {}
     setUser(null);
     setStep("LOGIN");
     setActiveTab("dashboard");
@@ -1339,10 +1375,17 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
     const [showWarehouseManager, setShowWarehouseManager] = useState(false);
     const canDelete = userPermissions ? !!userPermissions.inventory?.delete : userRole === "admin";
     const canEdit = userPermissions ? !!userPermissions.inventory?.edit : userRole === "admin";
+
+    useEffect(() => {
+        if (refreshWarehouses) {
+            refreshWarehouses();
+        }
+    }, []);
+
     const [form, setForm] = useState({ 
         name: "", category: products[0]?.category || "Safety Vests", price: "", 
         shopStock: "", warehouseStock: "", 
-        warehouseId: warehouses?.[0]?.id || "wh-main",
+        warehouseId: warehouses?.find(w => w.isDefault)?.id || warehouses?.[0]?.id || "wh-main",
         bulkUnitSize: "1", bulkUnitName: "Item", 
         sku: "", barcode: "", description: "" 
     });
@@ -1456,8 +1499,20 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                     </button>
                     {userPermissions?.inventory.create && (
                         <button 
-                          onClick={() => setShowModal(true)}
-                          className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-500/20"
+                          onClick={() => {
+                            if (refreshWarehouses) refreshWarehouses();
+                            const defaultWh = warehouses?.find(w => w.isDefault)?.id || warehouses?.[0]?.id || "wh-main";
+                            setForm({ 
+                                name: "", category: categories[0] || "Safety Vests", price: "", 
+                                shopStock: "", warehouseStock: "", 
+                                warehouseId: defaultWh,
+                                bulkUnitSize: "1", bulkUnitName: "Item", 
+                                sku: "", barcode: "", description: "" 
+                            });
+                            setEditingProduct(null);
+                            setShowModal(true);
+                          }}
+                          className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-500/20 cursor-pointer"
                          >
                             <Plus size={20} /> Add Product
                         </button>
@@ -1792,17 +1847,18 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                             <p className="text-[10px] text-amber-600 font-medium">Bulk storage quantity</p>
                                         </div>
 
-                                        {warehouses && warehouses.length > 0 && (
-                                            <WarehouseSelector
-                                                warehouses={warehouses}
-                                                selectedWarehouseId={form.warehouseId}
-                                                onChange={id => setForm({ ...form, warehouseId: id })}
-                                                onWarehouseCreated={() => refreshWarehouses && refreshWarehouses()}
-                                                label="Assigned Warehouse Location"
-                                                helperText="Select which warehouse holds this stock"
-                                                theme="amber"
-                                            />
-                                        )}
+                                        <WarehouseSelector
+                                            warehouses={warehouses || []}
+                                            selectedWarehouseId={form.warehouseId}
+                                            onChange={id => setForm(prev => ({ ...prev, warehouseId: id }))}
+                                            onWarehouseCreated={created => {
+                                                if (refreshWarehouses) refreshWarehouses();
+                                                setForm(prev => ({ ...prev, warehouseId: created.id }));
+                                            }}
+                                            label="Assigned Warehouse Location"
+                                            helperText="Select which warehouse holds this stock"
+                                            theme="amber"
+                                        />
                                     </div>
                                 </div>
 
@@ -1878,7 +1934,10 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
             {/* Warehouse Locations Manager Modal */}
             <WarehouseManagerModal
                 isOpen={showWarehouseManager}
-                onClose={() => setShowWarehouseManager(false)}
+                onClose={() => {
+                    setShowWarehouseManager(false);
+                    if (refreshWarehouses) refreshWarehouses();
+                }}
                 warehouses={warehouses || []}
                 products={products}
                 refreshWarehouses={refreshWarehouses || (() => {})}
@@ -1895,6 +1954,13 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
     const canDelete = userPermissions ? !!userPermissions.inventory?.delete : userRole === "admin";
     const canEdit = userPermissions ? !!userPermissions.inventory?.edit : userRole === "admin";
+
+    useEffect(() => {
+        if (refreshWarehouses) {
+            refreshWarehouses();
+        }
+    }, []);
+
     const [addModal, setAddModal] = useState(false);
     const [linkingProduct, setLinkingProduct] = useState<Product | null>(null);
     const [editingWarehouseProduct, setEditingWarehouseProduct] = useState<Product | null>(null);
@@ -1910,7 +1976,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
     const [form, setForm] = useState({ 
         name: "", category: "Safety Vests", price: "", 
         shopStock: "0", warehouseStock: "", 
-        warehouseId: warehouses?.[0]?.id || "wh-main",
+        warehouseId: warehouses?.find(w => w.isDefault)?.id || warehouses?.[0]?.id || "wh-main",
         bulkUnitSize: "1", bulkUnitName: "Box", 
         sku: "", barcode: "", description: "" 
     });
@@ -2056,8 +2122,22 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                     </button>
                     {userPermissions?.inventory.create && (
                         <button 
-                            onClick={() => setAddModal(true)}
-                            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all font-sans"
+                            onClick={() => {
+                                if (refreshWarehouses) refreshWarehouses();
+                                const defaultWh = (selectedWarehouseFilter !== "all" ? selectedWarehouseFilter : null) || warehouses?.find(w => w.isDefault)?.id || warehouses?.[0]?.id || "wh-main";
+                                setForm(prev => ({
+                                    ...prev,
+                                    name: "", category: "Safety Vests", price: "",
+                                    shopStock: "0", warehouseStock: "",
+                                    warehouseId: defaultWh,
+                                    bulkUnitSize: "1", bulkUnitName: "Box",
+                                    sku: "", barcode: "", description: ""
+                                }));
+                                setLinkingProduct(null);
+                                setEditingWarehouseProduct(null);
+                                setAddModal(true);
+                            }}
+                            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all font-sans cursor-pointer"
                         >
                             <Package size={20} />
                             Add to Warehouse
@@ -2139,8 +2219,15 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                         <h3 className="text-xl font-bold text-slate-800">No Warehouse Products Found</h3>
                         <p className="text-slate-500 max-w-xs mx-auto mt-2">Start by adding your bulk imported goods to the warehouse inventory.</p>
                         <button 
-                            onClick={() => setAddModal(true)}
-                            className="mt-6 text-blue-600 font-bold hover:underline"
+                            onClick={() => {
+                                if (refreshWarehouses) refreshWarehouses();
+                                const defaultWh = warehouses?.find(w => w.isDefault)?.id || warehouses?.[0]?.id || "wh-main";
+                                setForm(prev => ({ ...prev, warehouseId: defaultWh }));
+                                setLinkingProduct(null);
+                                setEditingWarehouseProduct(null);
+                                setAddModal(true);
+                            }}
+                            className="mt-6 text-blue-600 font-bold hover:underline cursor-pointer"
                         >
                             Register your first item
                         </button>
@@ -2598,17 +2685,18 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                             <label className="text-xs font-bold text-amber-700">Total Units in Warehouse</label>
                                             <input type="number" value={form.warehouseStock} onChange={e => setForm({...form, warehouseStock: e.target.value})} className="w-full p-3 bg-white border border-amber-200 rounded-xl" />
                                         </div>
-                                        {warehouses && warehouses.length > 0 && (
-                                            <WarehouseSelector
-                                                warehouses={warehouses}
-                                                selectedWarehouseId={form.warehouseId}
-                                                onChange={id => setForm({ ...form, warehouseId: id })}
-                                                onWarehouseCreated={() => refreshWarehouses && refreshWarehouses()}
-                                                label="Assign to Warehouse Location"
-                                                helperText="Specify which warehouse holds this inventory"
-                                                theme="amber"
-                                            />
-                                        )}
+                                        <WarehouseSelector
+                                            warehouses={warehouses || []}
+                                            selectedWarehouseId={form.warehouseId}
+                                            onChange={id => setForm(prev => ({ ...prev, warehouseId: id }))}
+                                            onWarehouseCreated={created => {
+                                                if (refreshWarehouses) refreshWarehouses();
+                                                setForm(prev => ({ ...prev, warehouseId: created.id }));
+                                            }}
+                                            label="Assign to Warehouse Location"
+                                            helperText="Specify which warehouse holds this inventory"
+                                            theme="amber"
+                                        />
                                     </div>
                                 </div>
 
@@ -2694,7 +2782,10 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
             {/* Warehouse Locations Manager Modal */}
             <WarehouseManagerModal
                 isOpen={showWarehouseManager}
-                onClose={() => setShowWarehouseManager(false)}
+                onClose={() => {
+                    setShowWarehouseManager(false);
+                    if (refreshWarehouses) refreshWarehouses();
+                }}
                 warehouses={warehouses || []}
                 products={products}
                 refreshWarehouses={refreshWarehouses || (() => {})}

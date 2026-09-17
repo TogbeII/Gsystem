@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Warehouse as WarehouseIcon, Plus, Check, X, MapPin } from "lucide-react";
 import { Warehouse } from "../types";
 
@@ -13,7 +13,7 @@ interface WarehouseSelectorProps {
 }
 
 export function WarehouseSelector({
-  warehouses,
+  warehouses = [],
   selectedWarehouseId,
   onChange,
   onWarehouseCreated,
@@ -27,8 +27,36 @@ export function WarehouseSelector({
   const [newLocation, setNewLocation] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quickError, setQuickError] = useState<string | null>(null);
+  const [createdList, setCreatedList] = useState<Warehouse[]>([]);
 
-  const activeWarehouse = warehouses.find(w => w.id === selectedWarehouseId) || warehouses[0];
+  // Merge newly created items with warehouses prop so user sees them immediately
+  const mergedWarehouses = useMemo(() => {
+    const map = new Map<string, Warehouse>();
+    (warehouses || []).forEach(w => {
+      if (w && w.id) map.set(w.id, w);
+    });
+    createdList.forEach(w => {
+      if (w && w.id && !map.has(w.id)) {
+        map.set(w.id, w);
+      }
+    });
+    return Array.from(map.values());
+  }, [warehouses, createdList]);
+
+  const activeWarehouse =
+    mergedWarehouses.find(w => w.id === selectedWarehouseId) ||
+    mergedWarehouses.find(w => w.isDefault) ||
+    mergedWarehouses[0];
+
+  const isSelectedInList = mergedWarehouses.some(w => w.id === selectedWarehouseId);
+  const currentWhId = isSelectedInList ? selectedWarehouseId : (activeWarehouse?.id ?? "");
+
+  // Auto-sync parent state if current selected ID is invalid or not in list
+  useEffect(() => {
+    if (!isSelectedInList && currentWhId && onChange) {
+      onChange(currentWhId);
+    }
+  }, [isSelectedInList, currentWhId]);
 
   const handleQuickCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +73,7 @@ export function WarehouseSelector({
           name: newName.trim(),
           code: newCode.trim(),
           location: newLocation.trim(),
-          isDefault: warehouses.length === 0
+          isDefault: mergedWarehouses.length === 0
         })
       });
 
@@ -55,6 +83,7 @@ export function WarehouseSelector({
       }
 
       const created: Warehouse = await res.json();
+      setCreatedList(prev => [...prev, created]);
       onChange(created.id);
       if (onWarehouseCreated) {
         onWarehouseCreated(created);
@@ -94,22 +123,35 @@ export function WarehouseSelector({
 
       {!isQuickAdding ? (
         <div className="space-y-1.5">
-          <div className="relative">
-            <select
-              value={selectedWarehouseId || (activeWarehouse?.id ?? "")}
-              onChange={e => onChange(e.target.value)}
-              className={`w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 appearance-none pr-10 ${ringColor}`}
-            >
-              {warehouses.map(wh => (
-                <option key={wh.id} value={wh.id}>
-                  {wh.name} {wh.code ? `(${wh.code})` : ""} {wh.location ? `— ${wh.location}` : ""} {wh.isDefault ? "[Default]" : ""}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-3 top-3.5 pointer-events-none text-slate-400">
-              ▼
+          {mergedWarehouses.length > 0 ? (
+            <div className="relative">
+              <select
+                value={currentWhId}
+                onChange={e => onChange(e.target.value)}
+                className={`w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 appearance-none pr-10 ${ringColor}`}
+              >
+                {mergedWarehouses.map(wh => (
+                  <option key={wh.id} value={wh.id}>
+                    {wh.name} {wh.code ? `(${wh.code})` : ""} {wh.location ? `— ${wh.location}` : ""} {wh.isDefault ? "[Default]" : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-3.5 pointer-events-none text-slate-400">
+                ▼
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center justify-between p-3 bg-amber-50/60 border border-amber-200 rounded-xl text-xs">
+              <span className="text-amber-800 font-medium">No warehouse locations created yet</span>
+              <button
+                type="button"
+                onClick={() => setIsQuickAdding(true)}
+                className="px-2.5 py-1 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 text-[11px] transition-colors"
+              >
+                + Create Warehouse
+              </button>
+            </div>
+          )}
           {activeWarehouse && (
             <div className="flex items-center gap-2 text-[11px] text-slate-500 pl-1">
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${badgeBg}`}>

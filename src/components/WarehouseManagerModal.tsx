@@ -70,6 +70,13 @@ export function WarehouseManagerModal({
     setError(null);
   };
 
+  const handleClose = () => {
+    if (refreshWarehouses) {
+      refreshWarehouses();
+    }
+    onClose();
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) {
@@ -103,7 +110,9 @@ export function WarehouseManagerModal({
         }
       }
 
-      await refreshWarehouses();
+      if (refreshWarehouses) {
+        await refreshWarehouses();
+      }
       resetForm();
     } catch (err: any) {
       setError(err.message || "An error occurred");
@@ -124,7 +133,9 @@ export function WarehouseManagerModal({
         throw new Error(err.error || "Failed to delete warehouse");
       }
       setDeleteConfirmId(null);
-      await refreshWarehouses();
+      if (refreshWarehouses) {
+        await refreshWarehouses();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to delete warehouse");
     } finally {
@@ -155,7 +166,7 @@ export function WarehouseManagerModal({
           </div>
           <button 
             type="button"
-            onClick={onClose} 
+            onClick={handleClose} 
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
           >
             <X size={20} />
@@ -393,7 +404,7 @@ export function WarehouseManagerModal({
         <div className="px-8 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors cursor-pointer"
           >
             Close
