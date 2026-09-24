@@ -50,9 +50,9 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { exportToPDF, exportToExcel } from "./lib/exportUtils";
 import { User, License, Product, Customer, Sale, UserPermissions, Warehouse } from "./types";
-import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound } from "./lib/utils";
+import { cn, formatCurrency, formatDate, formatCurrencyPDF, playScanSound, safeStorage } from "./lib/utils";
 import InvoiceMenuView from "./components/InvoiceMenuView";
-import { BarcodeSvg } from "./components/BarcodeView";
+import { BarcodeSvg, generateBarcodeSvgString } from "./components/BarcodeView";
 import { BarcodeLabelModal } from "./components/BarcodeLabelModal";
 import BarcodeScannerHubView from "./components/BarcodeScannerHubView";
 import { UserManualModal } from "./components/UserManualModal";
@@ -115,24 +115,32 @@ let activeLicenseKey: string | null = null;
 
 // Initialize active credentials from sessionStorage if restored
 if (typeof window !== "undefined") {
-  try {
-    activeUsername = sessionStorage.getItem("genesys_active_username") || null;
-    activeLicenseKey = sessionStorage.getItem("genesys_active_license_key") || null;
-  } catch (e) {}
+  activeUsername = safeStorage.sessionGet("genesys_active_username") || null;
+  activeLicenseKey = safeStorage.sessionGet("genesys_active_license_key") || null;
 
   // Globally intercept window.fetch so ALL components, modals, and helper utilities automatically send X-User and X-License-Key
   if (!(window as any).__genesysFetchPatched) {
     (window as any).__genesysFetchPatched = true;
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      if (activeUsername && !headers.has("X-User")) {
-        headers.set("X-User", activeUsername);
+      try {
+        if (activeUsername || activeLicenseKey) {
+          const urlStr = typeof input === "string" ? input : (input instanceof URL ? input.href : ((input as any)?.url || ""));
+          if (urlStr.startsWith("/api") || urlStr.includes("/api/")) {
+            const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+            if (activeUsername && !headers.has("X-User")) {
+              headers.set("X-User", activeUsername);
+            }
+            if (activeLicenseKey && !headers.has("X-License-Key")) {
+              headers.set("X-License-Key", activeLicenseKey);
+            }
+            return originalFetch(input, { ...init, headers });
+          }
+        }
+      } catch (e) {
+        // Fallback safely to original fetch if any unexpected header issue occurs
       }
-      if (activeLicenseKey && !headers.has("X-License-Key")) {
-        headers.set("X-License-Key", activeLicenseKey);
-      }
-      return originalFetch(input, { ...init, headers });
+      return originalFetch(input, init);
     };
   }
 }
@@ -216,17 +224,15 @@ export default function App() {
   useEffect(() => {
     activeUsername = user?.username || null;
     activeLicenseKey = (user as any)?.tenantLicenseKey || null;
-    try {
-      if (user?.username) {
-        sessionStorage.setItem("genesys_active_username", user.username);
-        if ((user as any)?.tenantLicenseKey) {
-          sessionStorage.setItem("genesys_active_license_key", (user as any).tenantLicenseKey);
-        }
-      } else {
-        sessionStorage.removeItem("genesys_active_username");
-        sessionStorage.removeItem("genesys_active_license_key");
+    if (user?.username) {
+      safeStorage.sessionSet("genesys_active_username", user.username);
+      if ((user as any)?.tenantLicenseKey) {
+        safeStorage.sessionSet("genesys_active_license_key", (user as any).tenantLicenseKey);
       }
-    } catch (e) {}
+    } else {
+      safeStorage.sessionRemove("genesys_active_username");
+      safeStorage.sessionRemove("genesys_active_license_key");
+    }
   }, [user]);
 
   // App State
@@ -377,12 +383,10 @@ export default function App() {
     if (res.ok) {
       activeUsername = data.user.username;
       activeLicenseKey = data.user.tenantLicenseKey || null;
-      try {
-        sessionStorage.setItem("genesys_active_username", data.user.username);
-        if (data.user.tenantLicenseKey) {
-          sessionStorage.setItem("genesys_active_license_key", data.user.tenantLicenseKey);
-        }
-      } catch (e) {}
+      safeStorage.sessionSet("genesys_active_username", data.user.username);
+      if (data.user.tenantLicenseKey) {
+        safeStorage.sessionSet("genesys_active_license_key", data.user.tenantLicenseKey);
+      }
       setUser(data.user);
       
       try {
@@ -410,10 +414,8 @@ export default function App() {
   const handleSignOut = () => {
     activeUsername = null;
     activeLicenseKey = null;
-    try {
-      sessionStorage.removeItem("genesys_active_username");
-      sessionStorage.removeItem("genesys_active_license_key");
-    } catch (e) {}
+    safeStorage.sessionRemove("genesys_active_username");
+    safeStorage.sessionRemove("genesys_active_license_key");
     setUser(null);
     setStep("LOGIN");
     setActiveTab("dashboard");
@@ -635,6 +637,7 @@ export default function App() {
                   customers={customers} 
                   refresh={fetchData} 
                   businessName={config.businessName} 
+                  config={config}
                   currentUser={user}
                   sales={sales}
                   onOpenShiftHandover={checkPermission.shiftHandover(user) ? () => setShowShiftModal(true) : undefined}
@@ -2800,6 +2803,7 @@ function POSView({
     customers, 
     refresh, 
     businessName,
+    config,
     currentUser,
     sales = [],
     onOpenShiftHandover
@@ -2808,6 +2812,7 @@ function POSView({
     customers: Customer[], 
     refresh: () => void | Promise<void>, 
     businessName: string, 
+    config?: { businessName: string; businessAddress?: string; businessPhone?: string },
     currentUser?: User | null,
     sales?: Sale[],
     onOpenShiftHandover?: () => void,
@@ -2827,7 +2832,7 @@ function POSView({
 
     // Barcode Scanning State
     const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-        return localStorage.getItem("pos_beep_sound") !== "false";
+        return safeStorage.getItem("pos_beep_sound") !== "false";
     });
     const [scanNotification, setScanNotification] = useState<{
         id: number;
@@ -2857,7 +2862,7 @@ function POSView({
     const toggleSound = () => {
         const next = !soundEnabled;
         setSoundEnabled(next);
-        localStorage.setItem("pos_beep_sound", next ? "true" : "false");
+        safeStorage.setItem("pos_beep_sound", next ? "true" : "false");
     };
 
     const filteredProducts = products.filter(p => 
@@ -3206,85 +3211,303 @@ function POSView({
             alert("Please allow popups to print your receipt.");
             return;
         }
-        
+
+        const barcodeSvg = generateBarcodeSvgString(lastSale.id.split('-')[0].toUpperCase(), 34, 1.4, true)
+            .replace(/#0f172a/g, "#000000")
+            .replace(/#334155/g, "#000000");
+
+        const receiptId = lastSale.id.split('-')[0].toUpperCase();
+        const saleDate = new Date(lastSale.date).toLocaleString();
+        const cashier = (lastSale.cashierName || lastSale.cashierUsername || 'Administrator').toUpperCase();
+        const customer = (lastSale.customerName || 'Walk-in Customer').toUpperCase();
+        const paymentMethod = (lastSale.paymentType || 'CASH').toUpperCase();
+        const finalTotal = Math.max(0, lastSale.total - (lastSale.discount || 0));
+
         const receiptHtml = `
             <!DOCTYPE html>
             <html>
                 <head>
-                    <title>POS Receipt - ${lastSale.id.split('-')[0].toUpperCase()}</title>
+                    <meta charset="utf-8">
+                    <title>POS Receipt - ${receiptId}</title>
                     <style>
-                        body {
-                            font-family: 'Courier New', Courier, monospace;
-                            font-size: 13px;
-                            line-height: 1.4;
-                            color: #000;
+                        @page {
                             margin: 0;
-                            padding: 20px;
-                            max-width: 320px;
+                            size: auto;
+                        }
+                        * {
+                            box-sizing: border-box;
+                            color: #000000 !important;
+                            -webkit-print-color-adjust: exact !important;
+                            print-color-adjust: exact !important;
+                        }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, monospace;
+                            font-size: 13px;
+                            font-weight: 700;
+                            line-height: 1.35;
+                            color: #000000 !important;
+                            background-color: #ffffff;
+                            margin: 0 auto;
+                            padding: 12px 8px;
+                            max-width: 300px;
+                            width: 100%;
+                            -webkit-font-smoothing: antialiased;
+                            text-rendering: optimizeLegibility;
                         }
                         .text-center { text-align: center; }
                         .text-right { text-align: right; }
-                        .font-bold { font-weight: bold; }
-                        .my-4 { margin-top: 16px; margin-bottom: 16px; }
-                        .border-t { border-top: 1px dashed #000; }
-                        .border-b { border-bottom: 1px dashed #000; }
-                        .py-2 { padding-top: 8px; padding-bottom: 8px; }
-                        .flex { display: flex; justify-content: space-between; }
-                        .mt-2 { margin-top: 8px; }
-                        .mb-1 { margin-bottom: 4px; }
-                        .header-title { font-size: 18px; font-weight: 900; margin: 0 0 4px 0; }
+                        .text-left { text-align: left; }
+                        
+                        .header-title {
+                            font-size: 20px;
+                            font-weight: 900;
+                            line-height: 1.15;
+                            letter-spacing: -0.5px;
+                            text-transform: uppercase;
+                            margin: 0 0 4px 0;
+                            color: #000000;
+                        }
+                        .header-info {
+                            font-size: 11px;
+                            font-weight: 700;
+                            margin-bottom: 2px;
+                            color: #000000;
+                        }
+                        .header-type {
+                            font-size: 14px;
+                            font-weight: 900;
+                            letter-spacing: 1px;
+                            text-transform: uppercase;
+                            margin: 4px 0 2px 0;
+                            color: #000000;
+                        }
+                        .header-tag {
+                            font-size: 11px;
+                            font-weight: 800;
+                            letter-spacing: 0.5px;
+                            color: #000000;
+                        }
+                        
+                        .divider-solid {
+                            border-top: 2px solid #000000;
+                            margin: 6px 0;
+                        }
+                        .divider-dashed {
+                            border-top: 2px dashed #000000;
+                            margin: 6px 0;
+                        }
+                        .divider-double {
+                            border-top: 3px double #000000;
+                            margin: 6px 0;
+                        }
+                        
+                        .flex-row {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-start;
+                            margin: 3px 0;
+                        }
+                        
+                        .meta-section {
+                            font-size: 12px;
+                            font-weight: 700;
+                            padding: 2px 0;
+                        }
+                        .meta-label {
+                            font-weight: 800;
+                            text-transform: uppercase;
+                            color: #000000;
+                        }
+                        .meta-val {
+                            font-weight: 800;
+                            text-align: right;
+                            color: #000000;
+                        }
+                        
+                        .table-head {
+                            display: flex;
+                            justify-content: space-between;
+                            font-size: 12px;
+                            font-weight: 900;
+                            text-transform: uppercase;
+                            border-top: 2px solid #000000;
+                            border-bottom: 2px solid #000000;
+                            padding: 4px 0;
+                            margin: 6px 0;
+                            color: #000000;
+                        }
+                        
+                        .item-row {
+                            margin-bottom: 6px;
+                            page-break-inside: avoid;
+                        }
+                        .item-name {
+                            font-size: 13px;
+                            font-weight: 900;
+                            color: #000000;
+                            line-height: 1.25;
+                        }
+                        .item-details {
+                            font-size: 12px;
+                            font-weight: 700;
+                            display: flex;
+                            justify-content: space-between;
+                            margin-top: 2px;
+                            color: #000000;
+                        }
+                        
+                        .totals-section {
+                            font-size: 13px;
+                            font-weight: 800;
+                            margin-top: 6px;
+                            color: #000000;
+                        }
+                        .total-due-row {
+                            font-size: 19px;
+                            font-weight: 900;
+                            border-top: 2px solid #000000;
+                            border-bottom: 2px solid #000000;
+                            padding: 6px 0;
+                            margin: 6px 0;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            color: #000000;
+                        }
+                        
+                        .barcode-container {
+                            margin: 12px auto 6px auto;
+                            text-align: center;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                        }
+                        .barcode-container svg {
+                            max-width: 100%;
+                            height: auto;
+                            margin: 0 auto;
+                        }
+                        
+                        .footer {
+                            margin-top: 10px;
+                            text-align: center;
+                            font-size: 11px;
+                            font-weight: 800;
+                            text-transform: uppercase;
+                            border-top: 2px dashed #000000;
+                            padding-top: 8px;
+                            line-height: 1.4;
+                            color: #000000;
+                        }
+                        
+                        @media print {
+                            html, body {
+                                width: 100% !important;
+                                max-width: 100% !important;
+                                margin: 0 !important;
+                                padding: 4px 6px !important;
+                            }
+                        }
                     </style>
                 </head>
                 <body onload="window.print(); window.close();">
                     <div class="text-center">
-                        <h2 class="header-title">${businessName || "Genesys Retail"}</h2>
-                        <div class="font-bold">SALES RECEIPT</div>
-                        <div>Thank You For Shopping!</div>
+                        <h1 class="header-title">${businessName || "Genesys Retail"}</h1>
+                        ${config?.businessAddress ? `<div class="header-info">${config.businessAddress}</div>` : ''}
+                        ${config?.businessPhone ? `<div class="header-info">Tel: ${config.businessPhone}</div>` : ''}
+                        <div class="header-type">SALES RECEIPT</div>
+                        <div class="header-tag">*** THANK YOU FOR SHOPPING! ***</div>
                     </div>
-                    
-                    <div class="my-4 border-t border-b py-2 text-xs">
-                        <div class="flex"><span>Receipt ID:</span> <span>${lastSale.id.split('-')[0].toUpperCase()}</span></div>
-                        <div class="flex"><span>Date:</span> <span>${new Date(lastSale.date).toLocaleString()}</span></div>
-                        <div class="flex"><span>Cashier:</span> <span>${lastSale.cashierName || lastSale.cashierUsername || 'Administrator'}</span></div>
-                        <div class="flex"><span>Customer:</span> <span>${lastSale.customerName}</span></div>
-                        <div class="flex"><span>Payment:</span> <span style="text-transform: uppercase;">${lastSale.paymentType}</span></div>
-                    </div>
-                    
-                    <div class="my-4 border-b pb-2">
-                        <div class="flex font-bold" style="font-size: 11px; margin-bottom: 6px;">
-                            <span style="flex: 2;">Item</span>
-                            <span style="flex: 1; text-align: center;">Qty</span>
-                            <span style="flex: 1; text-align: right;">Total</span>
+
+                    <div class="divider-dashed"></div>
+
+                    <div class="meta-section">
+                        <div class="flex-row">
+                            <span class="meta-label">RECEIPT ID:</span>
+                            <span class="meta-val" style="font-weight: 900; font-size: 13px;">${receiptId}</span>
                         </div>
+                        <div class="flex-row">
+                            <span class="meta-label">DATE / TIME:</span>
+                            <span class="meta-val">${saleDate}</span>
+                        </div>
+                        <div class="flex-row">
+                            <span class="meta-label">CASHIER:</span>
+                            <span class="meta-val">${cashier}</span>
+                        </div>
+                        <div class="flex-row">
+                            <span class="meta-label">CUSTOMER:</span>
+                            <span class="meta-val">${customer}</span>
+                        </div>
+                        <div class="flex-row">
+                            <span class="meta-label">PAYMENT METHOD:</span>
+                            <span class="meta-val" style="font-weight: 900;">${paymentMethod}</span>
+                        </div>
+                    </div>
+
+                    <div class="table-head">
+                        <span style="flex: 2; text-align: left;">ITEM</span>
+                        <span style="flex: 0.8; text-align: center;">QTY</span>
+                        <span style="flex: 1.2; text-align: right;">PRICE</span>
+                        <span style="flex: 1.2; text-align: right;">TOTAL</span>
+                    </div>
+
+                    <div>
                         ${lastSale.items.map((item: any) => `
-                            <div class="mb-1">
-                                <div class="font-bold">${item.name}</div>
-                                <div class="flex" style="font-size: 11px;">
-                                    <span style="flex: 2; color: #555;">${formatCurrency(item.price)} each</span>
-                                    <span style="flex: 1; text-align: center;">x${item.quantity}</span>
-                                    <span style="flex: 1; text-align: right;">${formatCurrency(item.price * item.quantity)}</span>
+                            <div class="item-row">
+                                <div class="item-name">${item.name}</div>
+                                <div class="item-details">
+                                    <span style="flex: 2; text-align: left; font-size: 11px;">${formatCurrency(item.price)} each</span>
+                                    <span style="flex: 0.8; text-align: center; font-weight: 900;">x${item.quantity}</span>
+                                    <span style="flex: 1.2; text-align: right;">${formatCurrency(item.price)}</span>
+                                    <span style="flex: 1.2; text-align: right; font-weight: 900; font-size: 13px;">${formatCurrency(item.price * item.quantity)}</span>
                                 </div>
                             </div>
                         `).join('')}
                     </div>
-                    
-                    <div class="my-4 text-sm space-y-1">
-                        <div class="flex"><span>Subtotal:</span> <span>${formatCurrency(lastSale.total)}</span></div>
-                        ${lastSale.discount > 0 ? `<div class="flex font-bold" style="color: #000;"><span>Discount:</span> <span>-${formatCurrency(lastSale.discount)}</span></div>` : ''}
-                        <div class="flex font-black border-t pt-2 mt-2" style="font-size: 15px;">
-                            <span>TOTAL DUE:</span>
-                            <span>${formatCurrency(Math.max(0, lastSale.total - (lastSale.discount || 0)))}</span>
+
+                    <div class="divider-solid"></div>
+
+                    <div class="totals-section">
+                        <div class="flex-row">
+                            <span>SUBTOTAL:</span>
+                            <span style="font-weight: 900;">${formatCurrency(lastSale.total)}</span>
                         </div>
+                        ${lastSale.discount > 0 ? `
+                            <div class="flex-row">
+                                <span>DISCOUNT:</span>
+                                <span style="font-weight: 900;">-${formatCurrency(lastSale.discount)}</span>
+                            </div>
+                        ` : ''}
+                        <div class="total-due-row">
+                            <span>TOTAL DUE:</span>
+                            <span>${formatCurrency(finalTotal)}</span>
+                        </div>
+                        ${(lastSale.amountPaid !== undefined && lastSale.amountPaid !== null && lastSale.amountPaid !== "") ? `
+                            <div class="flex-row" style="margin-top: 4px;">
+                                <span>AMOUNT PAID:</span>
+                                <span style="font-weight: 900;">${formatCurrency(lastSale.amountPaid)}</span>
+                            </div>
+                            <div class="flex-row">
+                                <span>CHANGE GIVEN:</span>
+                                <span style="font-weight: 900;">${formatCurrency(Math.max(0, Number(lastSale.amountPaid) - finalTotal))}</span>
+                            </div>
+                        ` : ''}
                     </div>
-                    
-                    <div class="text-center" style="margin-top: 40px; font-size: 11px;">
-                        <div>SYSTEM POWERED BY GENESYS POS</div>
-                        <div style="font-style: italic;">We Hope to See You Again!</div>
+
+                    <div class="barcode-container">
+                        ${barcodeSvg}
+                    </div>
+
+                    <div class="footer">
+                        <div style="font-size: 12px; font-weight: 900; margin-bottom: 2px;">SYSTEM POWERED BY GENESYS POS</div>
+                        <div>*** WE HOPE TO SEE YOU AGAIN! ***</div>
+                        <div>PLEASE RETAIN RECEIPT FOR RECORDS</div>
                     </div>
                 </body>
             </html>
         `;
-        
+
         printWindow.document.write(receiptHtml);
         printWindow.document.close();
     };
@@ -3875,52 +4098,52 @@ function POSView({
                                     <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Transaction Receipt</p>
                                 </div>
 
-                                <div className="space-y-6 font-mono text-sm bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
-                                    <div className="flex justify-between items-center text-slate-400 text-xs border-b border-slate-200 border-dashed pb-4 mb-4">
-                                        <span>ID: {lastSale.id.split('-')[0].toUpperCase()}</span>
+                                <div className="space-y-6 font-mono text-sm bg-slate-50 p-8 rounded-[2rem] border-2 border-slate-200">
+                                    <div className="flex justify-between items-center text-slate-800 font-bold text-xs border-b-2 border-slate-300 border-dashed pb-4 mb-4">
+                                        <span className="font-black text-slate-900">ID: {lastSale.id.split('-')[0].toUpperCase()}</span>
                                         <span>{new Date(lastSale.date).toLocaleString()}</span>
                                     </div>
 
-                                    <div className="space-y-3 pb-4 border-b border-slate-200 border-dashed">
+                                    <div className="space-y-3 pb-4 border-b-2 border-slate-300 border-dashed">
                                         {lastSale.items.map((item: any, idx: number) => (
                                             <div key={idx} className="flex justify-between items-start gap-4">
                                                 <div className="flex-1">
-                                                    <p className="font-bold text-slate-800">{item.name}</p>
-                                                    <p className="text-[10px] text-slate-400">{item.quantity} x {formatCurrency(item.price)}</p>
+                                                    <p className="font-black text-slate-950 text-sm">{item.name}</p>
+                                                    <p className="text-xs font-bold text-slate-700">{item.quantity} x {formatCurrency(item.price)}</p>
                                                 </div>
-                                                <span className="font-bold text-slate-700">{formatCurrency(item.price * item.quantity)}</span>
+                                                <span className="font-black text-slate-950 text-sm">{formatCurrency(item.price * item.quantity)}</span>
                                             </div>
                                         ))}
                                     </div>
 
                                     <div className="space-y-2 pt-2">
-                                        <div className="flex justify-between text-slate-400">
+                                        <div className="flex justify-between text-slate-800 font-bold">
                                             <span>Subtotal</span>
-                                            <span>{formatCurrency(lastSale.total)}</span>
+                                            <span className="font-black text-slate-950">{formatCurrency(lastSale.total)}</span>
                                         </div>
                                         {lastSale.discount > 0 && (
-                                            <div className="flex justify-between text-amber-600 font-bold">
+                                            <div className="flex justify-between text-amber-700 font-black">
                                                 <span>Discount</span>
                                                 <span>-{formatCurrency(lastSale.discount)}</span>
                                             </div>
                                         )}
-                                        <div className="flex justify-between text-lg font-black text-slate-900 pt-2 border-t border-slate-200 border-dashed mt-2">
+                                        <div className="flex justify-between text-xl font-black text-slate-950 pt-3 border-t-2 border-slate-300 border-dashed mt-3">
                                             <span>TOTAL</span>
                                             <span>{formatCurrency(Math.max(0, lastSale.total - (lastSale.discount || 0)))}</span>
                                         </div>
-                                        <div className="flex justify-between text-[10px] text-slate-400 pt-4 font-bold uppercase">
-                                            <span>Method: {lastSale.paymentType}</span>
-                                            <span>Customer: {lastSale.customerName}</span>
+                                        <div className="flex justify-between text-xs text-slate-800 pt-3 font-bold uppercase">
+                                            <span>Method: <strong className="font-black text-slate-950">{lastSale.paymentType}</strong></span>
+                                            <span>Customer: <strong className="font-black text-slate-950">{lastSale.customerName}</strong></span>
                                         </div>
-                                        <div className="flex justify-between text-[11px] text-slate-600 pt-2 border-t border-slate-200 border-dashed">
-                                            <span className="font-semibold text-slate-400">Cashier:</span>
-                                            <span className="font-bold text-slate-800">{lastSale.cashierName || lastSale.cashierUsername || 'Administrator'} <span className="text-[10px] text-slate-400 font-mono">(@{lastSale.cashierUsername || 'admin'})</span></span>
+                                        <div className="flex justify-between text-xs text-slate-800 pt-2 border-t border-slate-300 border-dashed">
+                                            <span className="font-bold text-slate-700">Cashier:</span>
+                                            <span className="font-black text-slate-950">{lastSale.cashierName || lastSale.cashierUsername || 'Administrator'} <span className="text-[11px] text-slate-600 font-mono font-bold">(@{lastSale.cashierUsername || 'admin'})</span></span>
                                         </div>
                                     </div>
 
                                     {/* Receipt Barcode */}
-                                    <div className="pt-2 flex flex-col items-center justify-center border-t border-slate-200 border-dashed">
-                                        <BarcodeSvg value={lastSale.id.split('-')[0].toUpperCase()} height={32} showText={true} />
+                                    <div className="pt-3 flex flex-col items-center justify-center border-t-2 border-slate-300 border-dashed">
+                                        <BarcodeSvg value={lastSale.id.split('-')[0].toUpperCase()} height={34} showText={true} />
                                     </div>
                                 </div>
 

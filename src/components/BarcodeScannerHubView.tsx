@@ -28,7 +28,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import { Product, User } from "../types";
 import { BarcodeSvg, drawBarcodeToJsPdf } from "./BarcodeView";
 import { BarcodeLabelModal } from "./BarcodeLabelModal";
-import { cn, formatCurrency, formatCurrencyPDF, playScanSound } from "../lib/utils";
+import { cn, formatCurrency, formatCurrencyPDF, playScanSound, safeStorage } from "../lib/utils";
 import jsPDF from "jspdf";
 
 interface BarcodeScannerHubViewProps {
@@ -58,7 +58,7 @@ export default function BarcodeScannerHubView({
 }: BarcodeScannerHubViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<"scanner" | "catalog" | "bulk_print">("scanner");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    return localStorage.getItem("pos_beep_sound") !== "false";
+    return safeStorage.getItem("pos_beep_sound") !== "false";
   });
 
   // Scanner State
@@ -99,7 +99,7 @@ export default function BarcodeScannerHubView({
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
-    localStorage.setItem("pos_beep_sound", next ? "true" : "false");
+    safeStorage.setItem("pos_beep_sound", next ? "true" : "false");
   };
 
   // Hardware Scanner Global Keyboard Listener

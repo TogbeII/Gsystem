@@ -179,28 +179,42 @@ export function ShiftHandoverModal({
         <head>
           <title>Shift Handover Slip - ${printUsername.toUpperCase()}</title>
           <style>
+            @page {
+              margin: 0;
+              size: auto;
+            }
+            * {
+              box-sizing: border-box;
+              color: #000000 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
             body {
-              font-family: 'Courier New', Courier, monospace;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, monospace;
               width: 300px;
               margin: 0 auto;
-              padding: 15px;
-              color: #000;
-              font-size: 12px;
+              padding: 12px 8px;
+              color: #000000 !important;
+              background-color: #ffffff;
+              font-size: 13px;
+              font-weight: 700;
               line-height: 1.35;
+              -webkit-font-smoothing: antialiased;
+              text-rendering: optimizeLegibility;
             }
             .text-center { text-align: center; }
             .text-right { text-align: right; }
-            .bold { font-weight: bold; }
-            .title { font-size: 15px; font-weight: bold; margin-bottom: 2px; }
-            .subtitle { font-size: 11px; margin-bottom: 6px; }
-            .divider { border-top: 1px dashed #000; margin: 8px 0; }
-            .double-divider { border-top: 2px solid #000; margin: 8px 0; }
+            .bold { font-weight: 800; }
+            .title { font-size: 18px; font-weight: 900; margin-bottom: 2px; text-transform: uppercase; }
+            .subtitle { font-size: 11px; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.5px; }
+            .divider { border-top: 2px dashed #000000; margin: 8px 0; }
+            .double-divider { border-top: 2px solid #000000; margin: 8px 0; }
             .flex-between { display: flex; justify-content: space-between; margin: 3px 0; }
-            .box { border: 1px solid #000; padding: 6px; margin: 8px 0; }
+            .box { border: 2px solid #000000; padding: 6px; margin: 8px 0; }
             .signatures { margin-top: 25px; }
-            .sig-line { border-top: 1px solid #000; margin-top: 30px; padding-top: 4px; font-size: 10px; }
+            .sig-line { border-top: 1.5px solid #000000; margin-top: 30px; padding-top: 4px; font-size: 11px; font-weight: 800; }
             @media print {
-              body { width: 100%; padding: 0; }
+              body { width: 100% !important; max-width: 100% !important; padding: 4px 6px !important; margin: 0 !important; }
             }
           </style>
         </head>

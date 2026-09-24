@@ -79,3 +79,48 @@ export function playScanSound(type: 'success' | 'error' | 'warning' = 'success')
   }
 }
 
+// Resilient storage helper that never throws in sandboxed or third-party iframes
+export const safeStorage = {
+  getItem(key: string): string | null {
+    try {
+      return typeof window !== "undefined" && window.localStorage ? localStorage.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  },
+  setItem(key: string, value: string): void {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.setItem(key, value);
+      }
+    } catch {}
+  },
+  removeItem(key: string): void {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.removeItem(key);
+      }
+    } catch {}
+  },
+  sessionGet(key: string): string | null {
+    try {
+      return typeof window !== "undefined" && window.sessionStorage ? sessionStorage.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  },
+  sessionSet(key: string, value: string): void {
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        sessionStorage.setItem(key, value);
+      }
+    } catch {}
+  },
+  sessionRemove(key: string): void {
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        sessionStorage.removeItem(key);
+      }
+    } catch {}
+  }
+};
