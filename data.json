@@ -1,0 +1,278 @@
+{
+  "users": [
+    {
+      "username": "Togbe",
+      "password": "2fff5e5bcd82f9eefd832524403ffc4d90f9e604e3c3d91f697406cba4d63c83",
+      "role": "admin",
+      "fullName": "Evans Gborgbortsi",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-3MONTH-6376F18C-33C4E7CD"
+    },
+    {
+      "username": "admin",
+      "password": "4b8e58d59737122066c99597422fdb47b52793323ded05efc903334b2933f37d",
+      "role": "admin",
+      "fullName": "System Administrator",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-DEFAULT-SYSTEM"
+    },
+    {
+      "username": "genesys_owner",
+      "password": "35dfb4889ca9d16f4f76e8122de54294f2af1036387fe1dabe5a7bf8fda9b575",
+      "role": "admin",
+      "fullName": "Genesys Owner",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "OWNER"
+    }
+  ],
+  "tenant_GENESYS_6MONTH_D1EAF94F_7BE649D3_users": [
+    {
+      "username": "alibiiri",
+      "password": "fa2b2948b78d492e0e587c419b0192182f6389e8779d30a4183cdaee20f442ac",
+      "role": "admin",
+      "fullName": "ALIBIIRI CHINA MALL",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-6MONTH-D1EAF94F-7BE649D3"
+    }
+  ],
+  "tenant_GENESYS_3MONTH_6376F18C_33C4E7CD_users": [
+    {
+      "username": "Togbe",
+      "password": "2fff5e5bcd82f9eefd832524403ffc4d90f9e604e3c3d91f697406cba4d63c83",
+      "role": "admin",
+      "fullName": "Evans Gborgbortsi",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-3MONTH-6376F18C-33C4E7CD"
+    }
+  ],
+  "tenant_GENESYS_1YEAR_5A28A434_69A5A7A4_users": [
+    {
+      "username": "churchis4u",
+      "password": "76fe4e5909e7982179092a9a8344caec52cffa4254bec6386771d4112a89e05d",
+      "role": "admin",
+      "fullName": "Churchis Enterprise Admin",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-5A28A434-69A5A7A4"
+    },
+    {
+      "username": "akpene",
+      "password": "7c060a1da0d0362c76e5f55a23e1aa6fbfbb95ba918984293cbf6cb6f5385ff4",
+      "role": "manager",
+      "fullName": "Akpene",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": false },
+        "customers": { "view": true, "create": true, "edit": true, "delete": false },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": false, "settings": false }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-5A28A434-69A5A7A4"
+    },
+    {
+      "username": "anita",
+      "password": "0e055f47e1bd4f67af034727dfb86388ee94e2a78328ba8c3a946599016af0d9",
+      "role": "user",
+      "fullName": "Anita",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": false, "barcodeStudio": false, "create": false, "edit": false, "delete": false },
+        "customers": { "view": true, "create": true, "edit": false, "delete": false },
+        "sales": { "view": true, "create": true, "history": false, "shiftHandover": true },
+        "credit": { "view": true, "payment": false },
+        "admin": { "view": false, "users": false, "settings": false }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-5A28A434-69A5A7A4"
+    },
+    {
+      "username": "malolo",
+      "password": "e1b67d9577e3d2608f3a9dfb18b242e5bc1493d76c1bac624bbcf4a5ad95a278",
+      "role": "user",
+      "fullName": "Malolo",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": false, "barcodeStudio": false, "create": false, "edit": false, "delete": false },
+        "customers": { "view": true, "create": true, "edit": false, "delete": false },
+        "sales": { "view": true, "create": true, "history": false, "shiftHandover": true },
+        "credit": { "view": true, "payment": false },
+        "admin": { "view": false, "users": false, "settings": false }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-5A28A434-69A5A7A4"
+    }
+  ],
+  "tenant_GENESYS_1YEAR_E23DF4BC_B65129A9_users": [
+    {
+      "username": "admin",
+      "password": "c4f4588005f27b9f591c71ea5b76e7e54ccc6d8da749e654e149dabab9873512",
+      "role": "admin",
+      "fullName": "Samuel Ampomah Admin",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-E23DF4BC-B65129A9"
+    },
+    {
+      "username": "ampomaa",
+      "password": "e495d6173002a67e3a837b44582c7b6530bd2dae6024a4441d8aeef270f14b7a",
+      "role": "manager",
+      "fullName": "Ampomaa",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": false },
+        "customers": { "view": true, "create": true, "edit": true, "delete": false },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": false, "settings": false }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-E23DF4BC-B65129A9"
+    },
+    {
+      "username": "emma",
+      "password": "c9d4f3ce260dcf6202e8cf99d6a738f949fe1e43bea6a5e0c26496b14bbffb5a",
+      "role": "user",
+      "fullName": "Emma",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": false, "barcodeStudio": false, "create": false, "edit": false, "delete": false },
+        "customers": { "view": true, "create": true, "edit": false, "delete": false },
+        "sales": { "view": true, "create": true, "history": false, "shiftHandover": true },
+        "credit": { "view": true, "payment": false },
+        "admin": { "view": false, "users": false, "settings": false }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-E23DF4BC-B65129A9"
+    },
+    {
+      "username": "samuel",
+      "password": "d3c4199b7dad646c1a0d32b164191a6ecd7a77d52eccd525ab499869f0018c44",
+      "role": "admin",
+      "fullName": "Samuel Ampomah",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-E23DF4BC-B65129A9"
+    }
+  ],
+  "tenant_GENESYS_1YEAR_DEFAULT_SYSTEM_users": [
+    {
+      "username": "admin",
+      "password": "4b8e58d59737122066c99597422fdb47b52793323ded05efc903334b2933f37d",
+      "role": "admin",
+      "fullName": "System Administrator",
+      "permissions": {
+        "inventory": { "view": true, "warehouseView": true, "barcodeStudio": true, "create": true, "edit": true, "delete": true },
+        "customers": { "view": true, "create": true, "edit": true, "delete": true },
+        "sales": { "view": true, "create": true, "history": true, "shiftHandover": true },
+        "credit": { "view": true, "payment": true },
+        "admin": { "view": true, "users": true, "settings": true }
+      },
+      "tenantLicenseKey": "GENESYS-1YEAR-DEFAULT-SYSTEM"
+    }
+  ],
+  "registered_customers": [
+    {
+      "licenseKey": "GENESYS-6MONTH-D1EAF94F-7BE649D3",
+      "licenseType": "6MONTH",
+      "businessName": "ALIBIIRI CHINA MALL",
+      "disabled": false,
+      "activatedAt": "2026-08-01T00:00:00.000Z",
+      "expiresAt": "2027-02-01T00:00:00.000Z"
+    },
+    {
+      "licenseKey": "GENESYS-3MONTH-6376F18C-33C4E7CD",
+      "licenseType": "3MONTH",
+      "businessName": "Evans Safety",
+      "disabled": false,
+      "activatedAt": "2026-08-01T00:00:00.000Z",
+      "expiresAt": "2026-11-01T00:00:00.000Z"
+    },
+    {
+      "licenseKey": "GENESYS-1YEAR-5A28A434-69A5A7A4",
+      "licenseType": "1YEAR",
+      "businessName": "Churchis Enterprise",
+      "disabled": false,
+      "activatedAt": "2026-08-01T00:00:00.000Z",
+      "expiresAt": "2027-08-01T00:00:00.000Z"
+    },
+    {
+      "licenseKey": "GENESYS-1YEAR-E23DF4BC-B65129A9",
+      "licenseType": "1YEAR",
+      "businessName": "SAMUEL AMPOMAH ENTERPRISE",
+      "disabled": false,
+      "activatedAt": "2026-08-01T00:00:00.000Z",
+      "expiresAt": "2027-08-01T00:00:00.000Z"
+    },
+    {
+      "licenseKey": "GENESYS-1YEAR-C3FBF9CC-A9EC8A3B",
+      "licenseType": "1YEAR",
+      "businessName": "Unnamed Business",
+      "disabled": false,
+      "activatedAt": "2026-08-01T00:00:00.000Z",
+      "expiresAt": "2027-08-01T00:00:00.000Z"
+    },
+    {
+      "licenseKey": "GENESYS-1YEAR-DEFAULT-SYSTEM",
+      "licenseType": "1YEAR",
+      "businessName": "GENESYS ENTERPRISE",
+      "disabled": false,
+      "activatedAt": "2026-09-25T11:15:01.788Z",
+      "expiresAt": "2027-09-25T11:15:01.788Z"
+    }
+  ],
+  "products": [],
+  "customers": [],
+  "sales": [],
+  "payments": [],
+  "returns": [],
+  "settings": {
+    "config": {
+      "businessName": "GENESYS ENTERPRISE",
+      "businessAddress": "Accra, Ghana",
+      "businessPhone": "+233 00 000 0000"
+    },
+    "license": {
+      "key": "GENESYS-1YEAR-DEFAULT-SYSTEM",
+      "type": "1YEAR",
+      "activatedAt": "2026-09-25T11:15:01.788Z",
+      "expiresAt": "2027-09-25T11:15:01.788Z"
+    }
+  }
+}

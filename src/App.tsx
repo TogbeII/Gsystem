@@ -256,17 +256,28 @@ export default function App() {
 
   useEffect(() => {
     checkInitialState();
+    // Safety fallback: Never leave the user stuck on the LOADING spinner
+    const timer = setTimeout(() => {
+      setStep((prev) => (prev === "LOADING" ? "LOGIN" : prev));
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   const checkInitialState = async () => {
     try {
-      const res = await fetch("/api/license/status");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const res = await fetch("/api/license/status", { signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       setLicense(data.license);
 
-      const configRes = await fetch("/api/config");
-      const configData = await configRes.json();
-      setConfig(configData);
+      try {
+        const configRes = await fetch("/api/config");
+        const configData = await configRes.json();
+        setConfig(configData);
+      } catch (e) {}
 
       // Support special direct owner path
       const isManager = window.location.pathname === "/manager" || window.location.pathname === "/manager/";
@@ -349,7 +360,7 @@ export default function App() {
       body: JSON.stringify({ businessName: name }),
     });
     if (res.ok) {
-      setConfig({ businessName: name });
+      setConfig({ businessName: name, businessAddress: "", businessPhone: "" });
       setStep("ADMIN_SETUP");
     }
   };
@@ -843,7 +854,7 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
                     if (setError) setError(null);
                     setLoginForm({...loginForm, username: e.target.value});
                   }}
-                  placeholder="Enter username"
+                  placeholder="e.g. admin or genesys_owner"
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
                   required
                 />
@@ -867,22 +878,24 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
 
               <button 
                 type="submit"
-                className="w-full bg-blue-600 text-white p-4.5 rounded-2xl font-bold text-sm hover:bg-blue-700 hover:scale-[1.01] active:scale-[0.99] transition-all shadow-xl shadow-blue-500/25 mt-2"
+                className="w-full bg-blue-600 text-white p-4.5 rounded-2xl font-bold text-sm hover:bg-blue-700 hover:scale-[1.01] active:scale-[0.99] transition-all shadow-xl shadow-blue-500/25 mt-2 cursor-pointer"
               >
                 Unlock Dashboard
               </button>
 
-              {!isManager && (
-                <div className="text-center pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode("LICENSE")}
-                    className="text-xs text-slate-400 font-semibold hover:text-blue-600 transition-all"
-                  >
-                    Need to activate/renew a license code? <span className="text-blue-500 underline font-bold">Activate here</span>
-                  </button>
-                </div>
-              )}
+              <div className="pt-2">
+                {!isManager && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setMode("LICENSE")}
+                      className="text-xs text-slate-400 font-semibold hover:text-blue-600 transition-all cursor-pointer"
+                    >
+                      Need to activate/renew a license code? <span className="text-blue-500 underline font-bold">Activate here</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </form>
           ) : (
             /* License Activation Mode Form */
@@ -1717,9 +1730,11 @@ function ShopInventoryView({ products, refresh, userRole, userPermissions, onNav
                                                                             price: m.price.toString(),
                                                                             shopStock: (m.shopStock || 0).toString(),
                                                                             warehouseStock: (m.warehouseStock || 0).toString(),
+                                                                            warehouseId: m.warehouseId || "",
                                                                             bulkUnitSize: (m.bulkUnitSize || 1).toString(),
                                                                             bulkUnitName: m.bulkUnitName || "Item",
                                                                             sku: m.sku || "",
+                                                                            barcode: m.barcode || "",
                                                                             description: m.description || ""
                                                                         });
                                                                     }}
@@ -2571,6 +2586,7 @@ function WarehouseInventoryView({ products, refresh, userRole, userPermissions, 
                                                                             price: m.price.toString(),
                                                                             shopStock: (m.shopStock || 0).toString(),
                                                                             warehouseStock: (m.warehouseStock || 0).toString(),
+                                                                            warehouseId: (m as any).warehouseId || "",
                                                                             bulkUnitSize: (m.bulkUnitSize || 1).toString(),
                                                                             bulkUnitName: m.bulkUnitName || "Box",
                                                                             sku: m.sku || "",
@@ -5254,7 +5270,7 @@ function SalesHistoryView({
                                 </div>
                                 
                                 {selectedSaleForReturn.items.map((item) => {
-                                    const alreadyReturned = item.returnedQuantity || 0;
+                                    const alreadyReturned = (item as any).returnedQuantity || 0;
                                     const maxReturnable = item.quantity - alreadyReturned;
                                     const toReturn = returnQuantities[item.id] || 0;
 

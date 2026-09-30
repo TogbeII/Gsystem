@@ -7,6 +7,21 @@
     <meta name="description" content="A comprehensive sales and inventory management system for safety tools and PPEs, featuring multi-warehouse management, offline support, credit tracking, license key validation, and barcode scanning." />
     <meta property="og:title" content="Genesys Sales/Inventory System" />
     <meta property="og:description" content="A comprehensive sales and inventory management system for safety tools and PPEs, featuring multi-warehouse management, offline support, credit tracking, license key validation, and barcode scanning." />
+    <script>
+      try {
+        sessionStorage.removeItem("warmup_start_time");
+        sessionStorage.removeItem("warmup_last_reload_time");
+        sessionStorage.removeItem("warmup_failed_sent");
+      } catch (e) {}
+    </script>
+    <style>
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
