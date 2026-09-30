@@ -235,27 +235,23 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
     }
   }
 
-  // 2. Fallback for purely offline instances without Firestore
-  if (!useFirestore) {
-    const local = loadLocalDb();
-    for (const key of Object.keys(local)) {
-      if (key.startsWith("tenant_") && key.endsWith("_users")) {
-        const array = local[key] || [];
-        if (array.some((u: any) => (u.username || "").toLowerCase() === lowerUser)) {
-          const match = key.match(/^tenant_(.*)_users$/);
-          if (match) {
-            const safeKey = match[1];
-            const parts = safeKey.split("_");
-            let licenseKey = safeKey;
-            if (parts.length === 4 && parts[0] === "GENESYS") {
-              licenseKey = parts.join("-");
-            }
-            userLicenseCache.set(lowerUser, licenseKey);
-            return licenseKey;
-          }
-        }
+  // 2. Fallback when Firestore is unavailable/quota-exceeded or offline
+  const local = loadLocalDb();
+  for (const key of Object.keys(local)) {
+    if (key.startsWith("tenant_") && key.endsWith("_users")) {
+      const array = local[key] || [];
+      const found = array.find((u: any) => (u.username || "").toLowerCase() === lowerUser);
+      if (found) {
+        const licenseKey = found.tenantLicenseKey || key.replace(/^tenant_/, "").replace(/_users$/, "").replace(/_/g, "-");
+        userLicenseCache.set(lowerUser, licenseKey);
+        return licenseKey;
       }
     }
+  }
+  const rootUser = (local.users || []).find((u: any) => (u.username || "").toLowerCase() === lowerUser);
+  if (rootUser && rootUser.tenantLicenseKey) {
+    userLicenseCache.set(lowerUser, rootUser.tenantLicenseKey);
+    return rootUser.tenantLicenseKey;
   }
 
   return null;
@@ -575,11 +571,22 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
   if (!useFirestore || collectionName !== "users") {
     const local = loadLocalDb();
     if (collectionName === "settings") {
-      local.settings = local.settings || {};
-      local.settings[docId] = data;
-      if (docId === "license") {
-        local.license = data;
-        cachedLicense = data;
+      if (finalCollection.startsWith("tenant_")) {
+        const array = local[finalCollection] || [];
+        const index = array.findIndex((item: any) => item.id === docId);
+        if (index > -1) {
+          array[index] = { ...array[index], ...data, id: docId };
+        } else {
+          array.push({ ...data, id: docId });
+        }
+        local[finalCollection] = array;
+      } else {
+        local.settings = local.settings || {};
+        local.settings[docId] = data;
+        if (docId === "license") {
+          local.license = data;
+          cachedLicense = data;
+        }
       }
     } else {
       const localKey = isGlobalOwnerDoc ? "users" : finalCollection;
@@ -701,6 +708,30 @@ async function getDocumentData(collectionName: string, docId: string): Promise<a
   if (!useFirestore || collectionName !== "users") {
     const local = loadLocalDb();
     if (collectionName === "settings") {
+      if (finalCollection.startsWith("tenant_")) {
+        const tenantSettings = local[finalCollection] || [];
+        const found = tenantSettings.find((s: any) => s.id === docId);
+        if (found) return found;
+
+        if (docId === "config") {
+          const store = tenantStorage.getStore();
+          let activeKey = store?.licenseKey;
+          if (!activeKey && store?.username) {
+            activeKey = userLicenseCache.get(store.username.toLowerCase());
+          }
+          if (activeKey) {
+            const reg = (local.registered_customers || []).find((r: any) => r.licenseKey === activeKey);
+            if (reg && reg.businessName) {
+              return {
+                id: "config",
+                businessName: reg.businessName,
+                businessAddress: reg.businessAddress || "Accra, Ghana",
+                businessPhone: reg.businessPhone || "+233 00 000 0000"
+              };
+            }
+          }
+        }
+      }
       const localSetting = local.settings?.[docId] || (docId === "license" ? local.license : null);
       if (localSetting) return localSetting;
     } else {
@@ -1677,20 +1708,23 @@ app.post("/api/login", async (req, res) => {
   // 3. Fallback when Firestore is unavailable/quota-exceeded or in offline mode
   if (!user) {
     const local = loadLocalDb();
-    user = (local.users || []).find((u: any) => (u.username || "").toLowerCase() === lowerUsername);
-    if (!user) {
-      for (const key of Object.keys(local)) {
-        if (key.startsWith("tenant_") && key.endsWith("_users")) {
-          const arr = local[key] || [];
-          const found = arr.find((u: any) => (u.username || "").toLowerCase() === lowerUsername);
-          if (found) {
-            user = found;
-            if (!userLicenseKey) {
-              userLicenseKey = found.tenantLicenseKey || key.replace(/^tenant_/, "").replace(/_users$/, "").replace(/_/g, "-");
-            }
-            break;
-          }
+    // 3a. Search tenant user collections first so userLicenseKey is guaranteed to be set
+    for (const key of Object.keys(local)) {
+      if (key.startsWith("tenant_") && key.endsWith("_users")) {
+        const arr = local[key] || [];
+        const found = arr.find((u: any) => (u.username || "").toLowerCase() === lowerUsername);
+        if (found) {
+          user = found;
+          userLicenseKey = found.tenantLicenseKey || key.replace(/^tenant_/, "").replace(/_users$/, "").replace(/_/g, "-");
+          break;
         }
+      }
+    }
+    // 3b. Search root users
+    if (!user) {
+      user = (local.users || []).find((u: any) => (u.username || "").toLowerCase() === lowerUsername);
+      if (user && user.tenantLicenseKey) {
+        userLicenseKey = user.tenantLicenseKey;
       }
     }
   }
