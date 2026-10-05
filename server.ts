@@ -39,15 +39,14 @@ let lastQuotaCheckTime = 0;
 const QUOTA_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown before retrying Firestore
 
 function markFirestoreQuotaExceeded(err?: any) {
+  if (!err) return;
   const msg = (err?.message || "").toLowerCase();
-  const isRealQuota = !err || err?.code === 8 || err?.code === 429 || 
+  const isRealQuota = err?.code === 8 || err?.code === 429 || 
     msg.includes("resource_exhausted") || 
-    msg.includes("quota exceeded") ||
-    msg.includes("timed out") ||
-    msg.includes("timeout");
+    msg.includes("quota exceeded");
   if (!isRealQuota) return;
   if (!firestoreQuotaExceeded) {
-    console.warn("[Firestore] Quota exhausted or connection timed out. Activating resilient local fallback mode.", err?.message || err);
+    console.warn("[Firestore] Quota exhausted (RESOURCE_EXHAUSTED). Activating local fallback mode.", err?.message || err);
   }
   firestoreQuotaExceeded = true;
   lastQuotaCheckTime = Date.now();
@@ -65,7 +64,7 @@ function isFirestoreAvailable(): boolean {
   return true;
 }
 
-async function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 5000): Promise<T | null> {
+async function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 15000): Promise<T | null> {
   let timer: any = null;
   let didTimeout = false;
   const timeoutPromise = new Promise<null>((resolve) => {
@@ -79,8 +78,7 @@ async function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 5000): P
     const result = await Promise.race([promise, timeoutPromise]);
     if (timer) clearTimeout(timer);
     if (didTimeout) {
-      console.warn("[Firestore] Query timed out, marking quota exceeded to serve local cache instantly.");
-      markFirestoreQuotaExceeded(new Error("Firestore query timed out / quota exceeded"));
+      console.warn(`[Firestore] Query took longer than ${timeoutMs}ms, using local cache.`);
       return null;
     }
     return result as T | null;
@@ -167,79 +165,7 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
     return userLicenseCache.get(lowerUser)!;
   }
 
-  // 1. Query Firestore first when available
-  if (isFirestoreAvailable()) {
-    try {
-      // Direct root users collection check first (1 fast direct read)
-      const rootUserDoc = await withFirestoreTimeout(db!.collection("users").doc(cleanUser).get(), 2500);
-      if (rootUserDoc && rootUserDoc.exists) {
-        const rootData = rootUserDoc.data();
-        if (rootData?.licenseKey) {
-          userLicenseCache.set(lowerUser, rootData.licenseKey);
-          return rootData.licenseKey;
-        }
-        if (lowerUser === "togbe") {
-          const togbeKey = "GENESYS-3MONTH-6376F18C-33C4E7CD";
-          userLicenseCache.set(lowerUser, togbeKey);
-          return togbeKey;
-        }
-        const sysLicDoc = await withFirestoreTimeout(db!.collection("settings").doc("license").get(), 2000);
-        if (sysLicDoc && sysLicDoc.exists && sysLicDoc.data()?.key) {
-          const sysKey = sysLicDoc.data().key;
-          userLicenseCache.set(lowerUser, sysKey);
-          return sysKey;
-        }
-        const localLic = getLocalLicense();
-        if (localLic && localLic.key) {
-          userLicenseCache.set(lowerUser, localLic.key);
-          return localLic.key;
-        }
-      }
-
-      // Check default system tenant directly for admin
-      if (lowerUser === "admin") {
-        const defaultKey = "GENESYS-1YEAR-DEFAULT-SYSTEM";
-        const defCol = db!.collection("tenant_GENESYS_1YEAR_DEFAULT_SYSTEM_users");
-        const defDoc = await withFirestoreTimeout(defCol.doc(cleanUser).get(), 2000);
-        if (defDoc && defDoc.exists) {
-          userLicenseCache.set(lowerUser, defaultKey);
-          return defaultKey;
-        }
-      }
-
-      // Registered customers scan only if not found directly
-      const regsRef = db!.collection("registered_customers");
-      const regsSnapshot = await withFirestoreTimeout(regsRef.get(), 2500);
-      if (regsSnapshot && !regsSnapshot.empty) {
-        const tenantSearches = regsSnapshot.docs.map(async (doc) => {
-          const reg = doc.data();
-          if (!reg.licenseKey) return null;
-          const safeKey = reg.licenseKey.replace(/[^a-zA-Z0-9]/g, "_");
-          const userCol = db!.collection(`tenant_${safeKey}_users`);
-          
-          // Direct doc lookup only (avoid secondary collection scans)
-          const userDoc = await withFirestoreTimeout(userCol.doc(cleanUser).get(), 1500);
-          if (userDoc && userDoc.exists) {
-            return reg.licenseKey;
-          }
-          return null;
-        });
-
-        const results = await Promise.all(tenantSearches);
-        const match = results.find((k) => k !== null);
-        if (match) {
-          userLicenseCache.set(lowerUser, match);
-          return match;
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === 8 || err?.code === 429 || err?.message?.includes("RESOURCE_EXHAUSTED") || err?.message?.includes("Quota exceeded")) {
-        markFirestoreQuotaExceeded(err);
-      }
-    }
-  }
-
-  // 2. Fallback when Firestore is unavailable/quota-exceeded or offline
+  // 1. Fast in-memory check from local cache (0ms latency, always up to date)
   const local = loadLocalDb();
   for (const key of Object.keys(local)) {
     if (key.startsWith("tenant_") && key.endsWith("_users")) {
@@ -256,6 +182,75 @@ async function getLicenseKeyForUser(username: string): Promise<string | null> {
   if (rootUser && rootUser.tenantLicenseKey) {
     userLicenseCache.set(lowerUser, rootUser.tenantLicenseKey);
     return rootUser.tenantLicenseKey;
+  }
+
+  // 2. Query Firestore if not found in local cache
+  if (isFirestoreAvailable()) {
+    try {
+      // Direct root users collection check first
+      const rootUserDoc = await withFirestoreTimeout(db!.collection("users").doc(cleanUser).get(), 3000);
+      if (rootUserDoc && rootUserDoc.exists) {
+        const rootData = rootUserDoc.data();
+        if (rootData?.licenseKey) {
+          userLicenseCache.set(lowerUser, rootData.licenseKey);
+          return rootData.licenseKey;
+        }
+        if (lowerUser === "togbe") {
+          const togbeKey = "GENESYS-3MONTH-6376F18C-33C4E7CD";
+          userLicenseCache.set(lowerUser, togbeKey);
+          return togbeKey;
+        }
+        const sysLicDoc = await withFirestoreTimeout(db!.collection("settings").doc("license").get(), 3000);
+        if (sysLicDoc && sysLicDoc.exists && sysLicDoc.data()?.key) {
+          const sysKey = sysLicDoc.data().key;
+          userLicenseCache.set(lowerUser, sysKey);
+          return sysKey;
+        }
+      }
+
+      // Check default system tenant directly for admin
+      if (lowerUser === "admin") {
+        const defaultKey = "GENESYS-1YEAR-DEFAULT-SYSTEM";
+        userLicenseCache.set(lowerUser, defaultKey);
+        return defaultKey;
+      }
+
+      // Registered customers scan
+      const regsRef = db!.collection("registered_customers");
+      const regsSnapshot = await withFirestoreTimeout(regsRef.get(), 4000);
+      if (regsSnapshot && !regsSnapshot.empty) {
+        const tenantSearches = regsSnapshot.docs.map(async (doc) => {
+          const reg = doc.data();
+          if (!reg.licenseKey) return null;
+          const safeKey = reg.licenseKey.replace(/[^a-zA-Z0-9]/g, "_");
+          const userCol = db!.collection(`tenant_${safeKey}_users`);
+          
+          // Direct doc lookup (both exact and lowercase)
+          const userDoc = await withFirestoreTimeout(userCol.doc(cleanUser).get(), 3000);
+          if (userDoc && userDoc.exists) {
+            return reg.licenseKey;
+          }
+          if (cleanUser !== lowerUser) {
+            const userDocLower = await withFirestoreTimeout(userCol.doc(lowerUser).get(), 3000);
+            if (userDocLower && userDocLower.exists) {
+              return reg.licenseKey;
+            }
+          }
+          return null;
+        });
+
+        const results = await Promise.all(tenantSearches);
+        const match = results.find((k) => k !== null);
+        if (match) {
+          userLicenseCache.set(lowerUser, match);
+          return match;
+        }
+      }
+    } catch (err: any) {
+      if (err?.code === 8 || err?.code === 429 || err?.message?.includes("RESOURCE_EXHAUSTED") || err?.message?.includes("Quota exceeded")) {
+        markFirestoreQuotaExceeded(err);
+      }
+    }
   }
 
   return null;
@@ -518,7 +513,7 @@ async function getCollectionData(collectionName: string): Promise<any[]> {
   if (isFirestoreAvailable()) {
     try {
       const colRef = db!.collection(finalCollection);
-      const snapshot = await withFirestoreTimeout(colRef.get(), 3000);
+      const snapshot = await withFirestoreTimeout(colRef.get(), 15000);
       if (snapshot) {
         const remoteMap = new Map<string, any>();
         snapshot.forEach((d) => {
@@ -571,8 +566,8 @@ async function setDocumentData(collectionName: string, docId: string, data: any)
   const isRegisteredCustDoc = collectionName === "registered_customers";
   const finalCollection = (isGlobalLicenseDoc || isRegisteredCustDoc) ? collectionName : (isGlobalOwnerDoc ? "users" : getCollectionNameForTenant(collectionName));
   
-  // 1. Only write non-user data to local JSON DB when Firestore is active (user accounts are kept securely in Firestore only)
-  if (!useFirestore || collectionName !== "users") {
+  // 1. Keep local JSON DB updated for resilience & instant offline operation
+  {
     const local = loadLocalDb();
     if (collectionName === "settings") {
       if (finalCollection.startsWith("tenant_")) {
@@ -725,16 +720,18 @@ async function getDocumentData(collectionName: string, docId: string): Promise<a
           }
           if (activeKey) {
             const reg = (local.registered_customers || []).find((r: any) => r.licenseKey === activeKey);
-            if (reg && reg.businessName) {
+            const bName = reg?.businessName || (activeKey.includes("D1EAF94F") ? "ALIBIIRI MALL " : activeKey.includes("5A28A434") ? "Churchis Enterprise" : activeKey.includes("6376F18C") ? "Evans Safety" : activeKey.includes("E23DF4BC") ? "SAMUEL AMPOMAH ENTERPRISE" : "");
+            if (bName) {
               return {
                 id: "config",
-                businessName: reg.businessName,
-                businessAddress: reg.businessAddress || "Accra, Ghana",
-                businessPhone: reg.businessPhone || "+233 00 000 0000"
+                businessName: bName,
+                businessAddress: reg?.businessAddress || "Accra, Ghana",
+                businessPhone: reg?.businessPhone || "+233 00 000 0000"
               };
             }
           }
         }
+        return null;
       }
       const localSetting = local.settings?.[docId] || (docId === "license" ? local.license : null);
       if (localSetting) return localSetting;
@@ -959,12 +956,11 @@ async function syncAllTenantRegistrations() {
               const usersSnap = await withFirestoreTimeout(col.get(), 2000);
               const userCount = usersSnap ? usersSnap.size : 0;
 
-              const configSnap = await withFirestoreTimeout(db!.collection(`tenant_${safeKey}_settings`).doc("config").get(), 1500);
+              const configSnap = await withFirestoreTimeout(db!.collection(`tenant_${safeKey}_settings`).doc("config").get(), 3000);
               const config = configSnap && configSnap.exists ? configSnap.data() : {};
-              const businessName = config.businessName || "Churchis Enterprise";
-
-              const existingDoc = await withFirestoreTimeout(db!.collection("registered_customers").doc(licenseKey).get(), 1500);
+              const existingDoc = await withFirestoreTimeout(db!.collection("registered_customers").doc(licenseKey).get(), 3000);
               const existingData = existingDoc && existingDoc.exists ? existingDoc.data() : null;
+              const businessName = config.businessName || existingData?.businessName || (licenseKey.includes("5A28A434") ? "Churchis Enterprise" : licenseKey.includes("D1EAF94F") ? "ALIBIIRI MALL " : licenseKey.includes("6376F18C") ? "Evans Safety" : licenseKey.includes("E23DF4BC") ? "SAMUEL AMPOMAH ENTERPRISE" : "Customer Instance");
               const activatedAt = existingData?.activatedAt || new Date().toISOString();
               const expiresAt = calculateExpiryDate(licenseType, new Date(activatedAt));
 
@@ -1007,11 +1003,10 @@ async function syncAllTenantRegistrations() {
             const users = local[key] || [];
             const settingsArr = local[`tenant_${safeKey}_settings`] || [];
             const configObj = settingsArr.find((s: any) => s.id === "config") || {};
-            const businessName = configObj.businessName || "Churchis Enterprise";
-
             local.registered_customers = local.registered_customers || [];
             const existingIdx = local.registered_customers.findIndex((r: any) => r.licenseKey === licenseKey);
             const existingReg = existingIdx > -1 ? local.registered_customers[existingIdx] : null;
+            const businessName = configObj.businessName || existingReg?.businessName || (licenseKey.includes("5A28A434") ? "Churchis Enterprise" : licenseKey.includes("D1EAF94F") ? "ALIBIIRI MALL " : licenseKey.includes("6376F18C") ? "Evans Safety" : licenseKey.includes("E23DF4BC") ? "SAMUEL AMPOMAH ENTERPRISE" : "Customer Instance");
             const activatedAt = existingReg?.activatedAt || new Date().toISOString();
             const expiresAt = calculateExpiryDate(licenseType, new Date(activatedAt));
 
@@ -1464,6 +1459,8 @@ app.get("/api/central/registrations", async (req, res) => {
                   bName = "Churchis Enterprise";
                 } else if (licenseKey.includes("6376F18C")) {
                   bName = "Evans Safety";
+                } else if (licenseKey.includes("D1EAF94F") || licenseKey.includes("DEFAULT")) {
+                  bName = "ALIBIIRI MALL ";
                 } else if (existing?.businessName && existing.businessName !== "Unnamed Business") {
                   bName = existing.businessName;
                 } else {
@@ -1511,7 +1508,7 @@ app.get("/api/central/registrations", async (req, res) => {
             licenseType: parts[1] || "1YEAR",
             activatedAt: new Date().toISOString(),
             expiresAt: calculateExpiryDate(parts[1] || "1YEAR"),
-            businessName: cfg.businessName || "Customer Instance",
+            businessName: cfg.businessName || (licenseKey.includes("D1EAF94F") || licenseKey.includes("DEFAULT") ? "ALIBIIRI MALL " : licenseKey.includes("5A28A434") ? "Churchis Enterprise" : licenseKey.includes("6376F18C") ? "Evans Safety" : licenseKey.includes("E23DF4BC") ? "SAMUEL AMPOMAH ENTERPRISE" : "Customer Instance"),
             domain: "Local Instance",
             activeUsersCount: uList.length || 1,
             lastPingAt: new Date().toISOString(),
