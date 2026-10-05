@@ -39,12 +39,15 @@ let lastQuotaCheckTime = 0;
 const QUOTA_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown before retrying Firestore
 
 function markFirestoreQuotaExceeded(err?: any) {
-  const isRealQuota = err?.code === 8 || err?.code === 429 || 
-    err?.message?.includes("RESOURCE_EXHAUSTED") || 
-    err?.message?.includes("Quota exceeded");
+  const msg = (err?.message || "").toLowerCase();
+  const isRealQuota = !err || err?.code === 8 || err?.code === 429 || 
+    msg.includes("resource_exhausted") || 
+    msg.includes("quota exceeded") ||
+    msg.includes("timed out") ||
+    msg.includes("timeout");
   if (!isRealQuota) return;
   if (!firestoreQuotaExceeded) {
-    console.warn("[Firestore] Quota exceeded on Google Cloud. Activating resilient local fallback mode.", err?.message || err);
+    console.warn("[Firestore] Quota exhausted or connection timed out. Activating resilient local fallback mode.", err?.message || err);
   }
   firestoreQuotaExceeded = true;
   lastQuotaCheckTime = Date.now();
@@ -76,7 +79,8 @@ async function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 5000): P
     const result = await Promise.race([promise, timeoutPromise]);
     if (timer) clearTimeout(timer);
     if (didTimeout) {
-      console.warn("[Firestore] Query timed out, continuing without blocking.");
+      console.warn("[Firestore] Query timed out, marking quota exceeded to serve local cache instantly.");
+      markFirestoreQuotaExceeded(new Error("Firestore query timed out / quota exceeded"));
       return null;
     }
     return result as T | null;

@@ -416,6 +416,7 @@ export default function App() {
       }
 
       setStep("APP");
+      fetchData();
     } else {
       setLoginError(data.error || "Wrong credentials entered");
       alert(data.error || "Wrong credentials entered");
@@ -3495,9 +3496,26 @@ function POSView({
                                 <span style="font-weight: 900;">-${formatCurrency(lastSale.discount)}</span>
                             </div>
                         ` : ''}
+                        ${(() => {
+                            const netTaxable = Math.round((finalTotal / 1.15) * 100) / 100;
+                            const vatAmount = Math.max(0, Math.round((finalTotal - netTaxable) * 100) / 100);
+                            return `
+                                <div class="flex-row" style="color: #475569; font-size: 11px; margin-top: 3px;">
+                                    <span>NET AMOUNT (EXCL. VAT):</span>
+                                    <span style="font-weight: 800;">${formatCurrency(netTaxable)}</span>
+                                </div>
+                                <div class="flex-row" style="color: #475569; font-size: 11px;">
+                                    <span>INCLUSIVE VAT (15% INCL.):</span>
+                                    <span style="font-weight: 800;">${formatCurrency(vatAmount)}</span>
+                                </div>
+                            `;
+                        })()}
                         <div class="total-due-row">
-                            <span>TOTAL DUE:</span>
+                            <span>TOTAL PAID:</span>
                             <span>${formatCurrency(finalTotal)}</span>
+                        </div>
+                        <div style="font-size: 9.5px; font-weight: 800; text-align: center; color: #475569; margin: 2px 0 4px 0; text-transform: uppercase;">
+                            *** VAT INCLUSIVE • NO EXTRA CHARGES ***
                         </div>
                         ${(lastSale.amountPaid !== undefined && lastSale.amountPaid !== null && lastSale.amountPaid !== "") ? `
                             <div class="flex-row" style="margin-top: 4px;">
@@ -3600,6 +3618,20 @@ function POSView({
             doc.text("Applied Discount:", 115, currentY);
             doc.text(`-${formatCurrencyPDF(lastSale.discount)}`, 175, currentY, { align: "right" });
         }
+
+        const finalTotal = Math.max(0, lastSale.total - (lastSale.discount || 0));
+        const netTaxable = Math.round((finalTotal / 1.15) * 100) / 100;
+        const vatAmount = Math.max(0, Math.round((finalTotal - netTaxable) * 100) / 100);
+
+        currentY += 6;
+        doc.setFont("Helvetica", "normal");
+        doc.setTextColor(100, 116, 139);
+        doc.text("Net Value (Excl. VAT):", 115, currentY);
+        doc.text(formatCurrencyPDF(netTaxable), 175, currentY, { align: "right" });
+
+        currentY += 5;
+        doc.text("Inclusive VAT (15%):", 115, currentY);
+        doc.text(formatCurrencyPDF(vatAmount), 175, currentY, { align: "right" });
         
         currentY += 8;
         doc.setLineWidth(0.5);
@@ -3610,7 +3642,7 @@ function POSView({
         doc.setFontSize(11);
         doc.setTextColor(15, 23, 42); // slate-900
         doc.text("Final Total Paid:", 115, currentY);
-        doc.text(formatCurrencyPDF(Math.max(0, lastSale.total - (lastSale.discount || 0))), 175, currentY, { align: "right" });
+        doc.text(formatCurrencyPDF(finalTotal), 175, currentY, { align: "right" });
         
         // Footer message
         doc.setFont("Helvetica", "normal");
@@ -4143,7 +4175,27 @@ function POSView({
                                                 <span>-{formatCurrency(lastSale.discount)}</span>
                                             </div>
                                         )}
-                                        <div className="flex justify-between text-xl font-black text-slate-950 pt-3 border-t-2 border-slate-300 border-dashed mt-3">
+                                        {(() => {
+                                            const fTotal = Math.max(0, lastSale.total - (lastSale.discount || 0));
+                                            const netVal = Math.round((fTotal / 1.15) * 100) / 100;
+                                            const vatVal = Math.max(0, Math.round((fTotal - netVal) * 100) / 100);
+                                            return (
+                                                <div className="py-2.5 my-1 border-y border-slate-200 border-dashed space-y-1 text-xs text-slate-600 font-medium">
+                                                    <div className="flex justify-between">
+                                                        <span>Net Amount (Excl. VAT)</span>
+                                                        <span className="font-mono font-bold text-slate-800">{formatCurrency(netVal)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>VAT Portion (15% Included)</span>
+                                                        <span className="font-mono font-bold text-blue-700">{formatCurrency(vatVal)}</span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-center pt-0.5">
+                                                        *** VAT Inclusive • Total Unchanged ***
+                                                    </p>
+                                                </div>
+                                            );
+                                        })()}
+                                        <div className="flex justify-between text-xl font-black text-slate-950 pt-1">
                                             <span>TOTAL</span>
                                             <span>{formatCurrency(Math.max(0, lastSale.total - (lastSale.discount || 0)))}</span>
                                         </div>

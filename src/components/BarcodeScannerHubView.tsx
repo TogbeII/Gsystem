@@ -84,6 +84,7 @@ export default function BarcodeScannerHubView({
   // Bulk Print State
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [labelsPerProduct, setLabelsPerProduct] = useState<number>(4);
+  const [bulkFormat, setBulkFormat] = useState<"40x60" | "a4">("40x60");
   const [bulkGenerating, setBulkGenerating] = useState(false);
 
   // Hardware Scanner buffer
@@ -378,6 +379,72 @@ export default function BarcodeScannerHubView({
       return null;
     }
 
+    // Expand list by labelsPerProduct count
+    const allLabels: Product[] = [];
+    selectedList.forEach((prod) => {
+      for (let i = 0; i < labelsPerProduct; i++) {
+        allLabels.push(prod);
+      }
+    });
+
+    if (bulkFormat === "40x60") {
+      // 40mm x 60mm individual thermal labels
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: [40, 60],
+      });
+
+      for (let i = 0; i < allLabels.length; i++) {
+        if (i > 0) doc.addPage([40, 60], "portrait");
+        const p = allLabels[i];
+        const codeVal = p.barcode || p.sku || p.id.slice(0, 10).toUpperCase();
+
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(1.5, 1.5, 37, 57, 1.5, 1.5, "D");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(config.businessName ? config.businessName.slice(0, 22) : "GENESYS POS", 20, 5, { align: "center" });
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        const truncated = p.name.length > 20 ? p.name.slice(0, 20) + "..." : p.name;
+        doc.text(truncated, 20, 9.5, { align: "center" });
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10.5);
+        doc.setTextColor(37, 99, 235);
+        doc.text(formatCurrencyPDF(p.price), 20, 15, { align: "center" });
+
+        drawBarcodeToJsPdf(
+          doc,
+          codeVal,
+          3,
+          18,
+          34,
+          26,
+          {
+            showText: true,
+            textSize: 7,
+            drawBackground: true,
+            backgroundColor: [255, 255, 255],
+            borderColor: [241, 245, 249],
+          }
+        );
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`SKU: ${p.sku || "N/A"}`, 20, 50, { align: "center" });
+        doc.text(p.category || "General", 20, 54, { align: "center" });
+      }
+
+      return { doc, count: allLabels.length, productCount: selectedList.length };
+    }
+
     const doc = new jsPDF({
       orientation: "portrait",
       unit: "mm",
@@ -393,14 +460,6 @@ export default function BarcodeScannerHubView({
     const gapX = 6;
     const gapY = 8;
     const labelsPerPage = cols * rows;
-
-    // Expand list by labelsPerProduct count
-    const allLabels: Product[] = [];
-    selectedList.forEach((prod) => {
-      for (let i = 0; i < labelsPerProduct; i++) {
-        allLabels.push(prod);
-      }
-    });
 
     const totalPages = Math.ceil(allLabels.length / labelsPerPage) || 1;
     let labelIdx = 0;
@@ -1122,6 +1181,30 @@ export default function BarcodeScannerHubView({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
+                <span className="text-xs font-bold text-slate-700 px-2">Format:</span>
+                <button
+                  type="button"
+                  onClick={() => setBulkFormat("40x60")}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                    bulkFormat === "40x60" ? "bg-blue-600 text-white shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  40mm × 60mm (Thermal)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkFormat("a4")}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                    bulkFormat === "a4" ? "bg-blue-600 text-white shadow-2xs" : "text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  A4 Sheet
+                </button>
+              </div>
+
               <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
                 <span className="text-xs font-bold text-slate-700">Labels per Product:</span>
                 <input
@@ -1138,10 +1221,10 @@ export default function BarcodeScannerHubView({
                 disabled={selectedProductIds.size === 0 || bulkGenerating}
                 onClick={handlePreviewBulkPDF}
                 className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center gap-2 transition-all cursor-pointer"
-                title="Preview full A4 PDF sheet in a new tab"
+                title={bulkFormat === "40x60" ? "Preview 40mm x 60mm labels in a new tab" : "Preview full A4 PDF sheet in a new tab"}
               >
                 <Eye size={16} className="text-blue-600" />
-                Preview PDF
+                {bulkFormat === "40x60" ? "Preview 40×60" : "Preview A4"}
               </button>
 
               <button
@@ -1150,7 +1233,7 @@ export default function BarcodeScannerHubView({
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all cursor-pointer"
               >
                 <Printer size={16} />
-                {bulkGenerating ? "Generating PDF..." : `Download PDF (${selectedProductIds.size * labelsPerProduct} Labels)`}
+                {bulkGenerating ? "Generating..." : `Download PDF (${selectedProductIds.size * labelsPerProduct} Labels)`}
               </button>
             </div>
           </div>
