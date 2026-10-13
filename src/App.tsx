@@ -43,7 +43,12 @@ import {
   Receipt,
   User as UserIcon,
   UserCheck,
-  DollarSign
+  DollarSign,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Copy,
+  Sparkles
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import jsPDF from "jspdf";
@@ -754,19 +759,87 @@ export default function App() {
 
 function SystemGate({ initialMode, onLogin, onActivate, license, error, setError, onModeChange }: any) {
   const isManager = window.location.pathname === "/manager" || window.location.pathname === "/manager/";
-  const [mode, setMode] = useState<"LOGIN" | "LICENSE">(isManager ? "LOGIN" : (initialMode === "LICENSE" ? "LICENSE" : "LOGIN"));
+  const [mode, setMode] = useState<"LOGIN" | "LICENSE" | "RESET">(isManager ? "LOGIN" : (initialMode === "LICENSE" ? "LICENSE" : "LOGIN"));
   
   const [loginForm, setLoginForm] = useState({ 
     username: isManager ? "genesys_owner" : "", 
     password: "" 
   });
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [activationKey, setActivationKey] = useState("");
+
+  // Self-service Password Reset State
+  const [resetForm, setResetForm] = useState({
+    username: "",
+    licenseKey: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (onModeChange) {
-      onModeChange(mode);
+      onModeChange(mode === "RESET" ? "LOGIN" : mode);
     }
   }, [mode]);
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    setResetSuccess(null);
+
+    if (!resetForm.username.trim()) {
+      setResetError("Please enter your account username.");
+      return;
+    }
+    if (!resetForm.licenseKey.trim()) {
+      setResetError("Please enter your Business License Key or Master Recovery Code.");
+      return;
+    }
+    if (resetForm.newPassword.length < 4) {
+      setResetError("New password must be at least 4 characters long.");
+      return;
+    }
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setResetError("Passwords do not match. Please re-enter.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: resetForm.username.trim(),
+          licenseKey: resetForm.licenseKey.trim(),
+          newPassword: resetForm.newPassword.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResetSuccess(data.message || "Password reset successfully! Redirecting to Sign In...");
+        // Auto-fill loginForm
+        setLoginForm({
+          username: resetForm.username.trim(),
+          password: resetForm.newPassword.trim()
+        });
+        setTimeout(() => {
+          setMode("LOGIN");
+          setResetSuccess(null);
+        }, 1800);
+      } else {
+        setResetError(data.error || "Failed to reset password. Please verify your License Key.");
+      }
+    } catch (err) {
+      setResetError("Network error: Could not reach the server. Please try again.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   return (
     <div className="h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950 p-6 relative overflow-hidden font-sans">
@@ -788,7 +861,7 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
         </div>
 
         {/* Unified Mode Switcher */}
-        {!isManager && (
+        {!isManager && mode !== "RESET" && (
           <div className="grid grid-cols-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
               type="button"
@@ -825,6 +898,27 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
           </div>
         )}
 
+        {!isManager && mode === "RESET" && (
+          <div className="flex items-center justify-between bg-amber-50 p-2.5 rounded-2xl border border-amber-200">
+            <div className="flex items-center gap-2 pl-2 text-amber-900">
+              <KeyRound size={15} className="text-amber-600" />
+              <span className="text-xs font-bold uppercase tracking-wider">Account Recovery</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("LOGIN");
+                if (setError) setError(null);
+                setResetError(null);
+                setResetSuccess(null);
+              }}
+              className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-white/90 px-3 py-1.5 rounded-xl border border-amber-200 shadow-xs transition-colors cursor-pointer"
+            >
+              Back to Sign In
+            </button>
+          </div>
+        )}
+
         {isManager && (
           <div className="flex justify-center">
             <span className="px-3.5 py-1 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold uppercase tracking-wider border border-blue-100">
@@ -835,7 +929,7 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
 
         {/* Forms Container */}
         <div className="space-y-6">
-          {error && (
+          {error && mode !== "RESET" && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3.5 rounded-2xl text-xs font-semibold flex items-center gap-2.5 animate-pulse">
               <svg className="w-4 h-4 shrink-0 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -855,26 +949,54 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
                     if (setError) setError(null);
                     setLoginForm({...loginForm, username: e.target.value});
                   }}
-                  placeholder="e.g. admin or genesys_owner"
+                  placeholder="e.g. alibiiri or admin"
                   className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
                   required
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Password</label>
+                <div className="flex justify-between items-center px-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    {showLoginPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                    {showLoginPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
                 <input 
-                  type="password"
+                  type={showLoginPassword ? "text" : "password"}
                   value={loginForm.password}
                   onChange={(e) => {
                     if (setError) setError(null);
                     setLoginForm({...loginForm, password: e.target.value});
                   }}
                   placeholder="••••••••••••"
-                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
+                  className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium font-mono"
                   required
                   autoFocus
                 />
+              </div>
+
+              <div className="flex justify-end pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("RESET");
+                    if (setError) setError(null);
+                    setResetError(null);
+                    setResetSuccess(null);
+                    if (loginForm.username) {
+                      setResetForm(prev => ({ ...prev, username: loginForm.username }));
+                    }
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer transition-colors"
+                >
+                  Forgot password? Reset account
+                </button>
               </div>
 
               <button 
@@ -898,7 +1020,7 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
                 )}
               </div>
             </form>
-          ) : (
+          ) : mode === "LICENSE" ? (
             /* License Activation Mode Form */
             <form onSubmit={(e) => { e.preventDefault(); onActivate(activationKey); }} className="space-y-4">
               <div className="space-y-1.5">
@@ -916,7 +1038,7 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
 
               <button 
                 type="submit"
-                className="w-full bg-slate-900 text-white p-4.5 rounded-2xl font-bold text-sm hover:bg-black hover:scale-[1.01] active:scale-[0.99] transition-all shadow-xl shadow-slate-900/25 mt-2"
+                className="w-full bg-slate-900 text-white p-4.5 rounded-2xl font-bold text-sm hover:bg-black hover:scale-[1.01] active:scale-[0.99] transition-all shadow-xl shadow-slate-900/25 mt-2 cursor-pointer"
               >
                 Activate Now
               </button>
@@ -925,9 +1047,132 @@ function SystemGate({ initialMode, onLogin, onActivate, license, error, setError
                 <button
                   type="button"
                   onClick={() => setMode("LOGIN")}
-                  className="text-xs text-slate-400 font-semibold hover:text-blue-600 transition-all"
+                  className="text-xs text-slate-400 font-semibold hover:text-blue-600 transition-all cursor-pointer"
                 >
                   Already registered your company? <span className="text-blue-500 underline font-bold">Sign In instead</span>
+                </button>
+              </div>
+            </form>
+          ) : (
+            /* Public Self-Service Password Reset Form */
+            <form onSubmit={handleResetSubmit} className="space-y-4">
+              {resetSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-2xl text-xs font-medium space-y-1">
+                  <div className="font-bold flex items-center gap-2 text-sm text-emerald-700">
+                    <CheckCircle2 size={16} />
+                    <span>Password Reset Successfully!</span>
+                  </div>
+                  <p>{resetSuccess}</p>
+                </div>
+              )}
+
+              {resetError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-500 shrink-0" />
+                  <span>{resetError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Account Username</label>
+                <input 
+                  value={resetForm.username}
+                  onChange={(e) => {
+                    setResetError(null);
+                    setResetForm({ ...resetForm, username: e.target.value });
+                  }}
+                  placeholder="e.g. alibiiri"
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-500/5 transition-all text-sm font-medium"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center px-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Business License Key</label>
+                  <span className="text-[10px] text-slate-400">On your receipt/certificate</span>
+                </div>
+                <input 
+                  value={resetForm.licenseKey}
+                  onChange={(e) => {
+                    setResetError(null);
+                    setResetForm({ ...resetForm, licenseKey: e.target.value });
+                  }}
+                  placeholder="GENESYS-XXXX-XXXX-XXXX"
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-500/5 transition-all text-sm font-mono uppercase"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center px-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPassword(!showResetPassword)}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    {showResetPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                    {showResetPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <input 
+                  type={showResetPassword ? "text" : "password"}
+                  value={resetForm.newPassword}
+                  onChange={(e) => {
+                    setResetError(null);
+                    setResetForm({ ...resetForm, newPassword: e.target.value });
+                  }}
+                  placeholder="Minimum 4 characters"
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-500/5 transition-all text-sm font-mono"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Confirm New Password</label>
+                <input 
+                  type={showResetPassword ? "text" : "password"}
+                  value={resetForm.confirmPassword}
+                  onChange={(e) => {
+                    setResetError(null);
+                    setResetForm({ ...resetForm, confirmPassword: e.target.value });
+                  }}
+                  placeholder="Re-type new password"
+                  className="w-full p-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-500/5 transition-all text-sm font-mono"
+                  required
+                />
+              </div>
+
+              <button 
+                type="submit"
+                disabled={resetLoading}
+                className="w-full bg-amber-600 text-white p-4 rounded-2xl font-bold text-sm hover:bg-amber-700 hover:scale-[1.01] active:scale-[0.99] transition-all shadow-xl shadow-amber-600/25 mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {resetLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Verifying & Resetting...
+                  </>
+                ) : (
+                  <>
+                    <KeyRound size={16} />
+                    Reset Password & Sign In
+                  </>
+                )}
+              </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("LOGIN");
+                    setResetError(null);
+                    setResetSuccess(null);
+                  }}
+                  className="text-xs text-slate-400 font-semibold hover:text-slate-600 transition-all cursor-pointer"
+                >
+                  Remembered your password? <span className="text-blue-500 underline font-bold">Return to Sign In</span>
                 </button>
               </div>
             </form>
@@ -5446,6 +5691,7 @@ function SalesHistoryView({
 
 function AdminView({ user, refresh, userRole, userPermissions, license, config, setConfig }: { user: any, refresh: () => void | Promise<void>, userRole?: string, userPermissions?: UserPermissions, license?: License, config: any, setConfig: any, key?: string }) {
     const [activeSubTab, setActiveSubTab] = useState("general");
+    const [recoveryFilterKey, setRecoveryFilterKey] = useState("");
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
     const [generatedKey, setGeneratedKey] = useState("");
@@ -5515,7 +5761,12 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
                          <button onClick={() => setActiveSubTab("data")} className={cn("px-4 py-2 rounded-xl font-bold transition-all", activeSubTab === "data" ? "bg-slate-900 text-white" : "text-slate-400")}>Data</button>
                     )}
                     {user?.username === "genesys_owner" && (
-                         <button onClick={() => setActiveSubTab("customers")} className={cn("px-4 py-2 rounded-xl font-bold transition-all", activeSubTab === "customers" ? "bg-slate-900 text-white" : "text-slate-400")}>License Tracker</button>
+                         <button onClick={() => { setActiveSubTab("customers"); setRecoveryFilterKey(""); }} className={cn("px-4 py-2 rounded-xl font-bold transition-all", activeSubTab === "customers" ? "bg-slate-900 text-white" : "text-slate-400")}>License Tracker</button>
+                    )}
+                    {user?.username === "genesys_owner" && (
+                         <button onClick={() => { setActiveSubTab("recovery"); setRecoveryFilterKey(""); }} className={cn("px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-1.5", activeSubTab === "recovery" ? "bg-slate-900 text-white" : "text-slate-400")}>
+                            <KeyRound size={14} /> Password Recovery
+                         </button>
                     )}
                 </div>
             </header>
@@ -5716,12 +5967,33 @@ function AdminView({ user, refresh, userRole, userPermissions, license, config, 
                 </div>
             )}
 
-            {activeSubTab === "customers" && <RegisteredCustomersView currentUser={user} />}
+            {activeSubTab === "customers" && (
+                <RegisteredCustomersView 
+                    currentUser={user} 
+                    onSelectForReset={(licenseKey: string) => {
+                        setRecoveryFilterKey(licenseKey);
+                        setActiveSubTab("recovery");
+                    }} 
+                />
+            )}
+
+            {activeSubTab === "recovery" && (
+                <OwnerPasswordRecoveryView 
+                    currentUser={user} 
+                    initialFilterKey={recoveryFilterKey} 
+                />
+            )}
         </motion.div>
     );
 }
 
-function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) {
+function RegisteredCustomersView({ 
+    currentUser, 
+    onSelectForReset 
+}: { 
+    currentUser: User | null; 
+    onSelectForReset?: (licenseKey: string) => void; 
+}) {
     const [registrations, setRegistrations] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [confirmDelete, setConfirmDelete] = useState<{ key: string; name: string } | null>(null);
@@ -5836,7 +6108,7 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                  </div>
                  <button 
                      onClick={fetchRegistrations}
-                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-2"
+                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer"
                  >
                      <RotateCcw size={14} /> Refresh Tracker
                  </button>
@@ -5902,9 +6174,16 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                         <td className="p-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
                                                 <button
+                                                    onClick={() => onSelectForReset?.(reg.licenseKey || reg.id)}
+                                                    className="bg-blue-50 hover:bg-blue-100 text-blue-600 p-1.5 rounded-lg transition-all cursor-pointer"
+                                                    title="Reset Tenant Staff Passwords"
+                                                >
+                                                    <KeyRound size={14} />
+                                                </button>
+                                                <button
                                                     onClick={() => handleToggleStatus(reg.licenseKey || reg.id)}
                                                     className={cn(
-                                                        "px-3 py-1.5 rounded-lg font-bold text-xs transition-all",
+                                                        "px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer",
                                                         reg.disabled
                                                             ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-600"
                                                             : "bg-amber-50 hover:bg-amber-100 text-amber-600"
@@ -5915,7 +6194,7 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteRegistration(reg.licenseKey || reg.id, reg.businessName)}
-                                                    className="bg-red-50 hover:bg-red-100 text-red-600 p-1.5 rounded-lg transition-all"
+                                                    className="bg-red-50 hover:bg-red-100 text-red-600 p-1.5 rounded-lg transition-all cursor-pointer"
                                                     title="Delete Registration"
                                                 >
                                                     <Trash2 size={14} />
@@ -5952,7 +6231,7 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setConfirmDelete(null)}
-                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-bold text-sm transition-all"
+                                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-bold text-sm transition-all cursor-pointer"
                                 >
                                     Cancel
                                 </button>
@@ -5962,7 +6241,7 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                                         setConfirmDelete(null);
                                         await executeDelete(keyToDelete);
                                     }}
-                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-2xl font-bold text-sm transition-all shadow-lg shadow-red-200"
+                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-2xl font-bold text-sm transition-all shadow-lg shadow-red-200 cursor-pointer"
                                 >
                                     Delete
                                 </button>
@@ -5996,10 +6275,568 @@ function RegisteredCustomersView({ currentUser }: { currentUser: User | null }) 
                             <div className="flex-1">{notification.message}</div>
                             <button 
                                 onClick={() => setNotification(null)}
-                                className="text-slate-400 hover:text-slate-600 ml-2 font-bold focus:outline-none"
+                                className="text-slate-400 hover:text-slate-600 ml-2 font-bold focus:outline-none cursor-pointer"
                             >
                                 ✕
                             </button>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+function OwnerPasswordRecoveryView({ 
+    currentUser, 
+    initialFilterKey = "" 
+}: { 
+    currentUser: User | null;
+    initialFilterKey?: string;
+}) {
+    const [tenants, setTenants] = useState<Array<{
+        licenseKey: string;
+        businessName: string;
+        users: Array<{ username: string; fullName: string; role: string; permissions?: any }>;
+    }>>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [filterKey, setFilterKey] = useState(initialFilterKey);
+    
+    // Quick Reset form state
+    const [quickUser, setQuickUser] = useState("");
+    const [quickPass, setQuickPass] = useState("");
+    const [quickLicense, setQuickLicense] = useState("");
+    const [quickShowPass, setQuickShowPass] = useState(false);
+    const [quickSubmitting, setQuickSubmitting] = useState(false);
+
+    // Modal state for user-specific reset
+    const [modalUser, setModalUser] = useState<{
+        username: string;
+        fullName: string;
+        role: string;
+        licenseKey: string;
+        businessName: string;
+    } | null>(null);
+    const [modalPass, setModalPass] = useState("");
+    const [modalShowPass, setModalShowPass] = useState(false);
+    const [modalSubmitting, setModalSubmitting] = useState(false);
+
+    // Toast notification
+    const [notification, setNotification] = useState<{ 
+        message: string; 
+        type: "success" | "error"; 
+        credentials?: { username: string; pass: string } 
+    } | null>(null);
+
+    const showToast = (message: string, type: "success" | "error", credentials?: { username: string; pass: string }) => {
+        setNotification({ message, type, credentials });
+        setTimeout(() => setNotification(null), 8000);
+    };
+
+    const fetchTenantUsers = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch("/api/owner/tenant-users", {
+                headers: { "X-User": currentUser?.username || "" }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setTenants(data);
+            }
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchTenantUsers();
+    }, []);
+
+    useEffect(() => {
+        if (initialFilterKey) {
+            setFilterKey(initialFilterKey);
+        }
+    }, [initialFilterKey]);
+
+    const generateSecurePassword = (username: string = "User") => {
+        const clean = username.replace(/[^a-zA-Z]/g, "") || "Client";
+        const cap = clean.charAt(0).toUpperCase() + clean.slice(1, 6).toLowerCase();
+        const randNum = Math.floor(100 + Math.random() * 900);
+        return `${cap}@${randNum}`;
+    };
+
+    const handleExecuteReset = async (username: string, newPassword: string, licenseKey?: string) => {
+        if (!username || !newPassword) {
+            showToast("Username and new password are required.", "error");
+            return false;
+        }
+        if (newPassword.trim().length < 4) {
+            showToast("Password must be at least 4 characters long.", "error");
+            return false;
+        }
+
+        try {
+            const res = await fetch("/api/owner/reset-password", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-User": currentUser?.username || ""
+                },
+                body: JSON.stringify({
+                    username: username.trim(),
+                    newPassword: newPassword.trim(),
+                    licenseKey: licenseKey || undefined
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(
+                    `Password for @${username} was reset successfully!`, 
+                    "success", 
+                    { username: username.trim(), pass: newPassword.trim() }
+                );
+                fetchTenantUsers();
+                return true;
+            } else {
+                showToast(data.error || "Failed to reset password", "error");
+                return false;
+            }
+        } catch (err) {
+            showToast("Network error occurred during password reset", "error");
+            return false;
+        }
+    };
+
+    const copyToClipboard = (text: string) => {
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text);
+        }
+    };
+
+    // Filtered list
+    const filteredTenants = useMemo(() => {
+        return tenants.filter(t => {
+            if (filterKey && t.licenseKey !== filterKey) return false;
+            if (!searchQuery) return true;
+            const q = searchQuery.toLowerCase();
+            const matchesTenant = t.businessName.toLowerCase().includes(q) || t.licenseKey.toLowerCase().includes(q);
+            const matchesUser = t.users.some(u => 
+                u.username.toLowerCase().includes(q) || 
+                (u.fullName || "").toLowerCase().includes(q)
+            );
+            return matchesTenant || matchesUser;
+        });
+    }, [tenants, searchQuery, filterKey]);
+
+    return (
+        <div className="space-y-8 font-sans">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2.5">
+                        <KeyRound className="text-blue-600" size={26} />
+                        Password Recovery Center
+                    </h2>
+                    <p className="text-xs text-slate-400 font-medium mt-1">
+                        Instantly reset passwords for any customer accounts across all isolated tenants or root admin accounts.
+                    </p>
+                </div>
+                <button 
+                    onClick={fetchTenantUsers}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-2 self-start md:self-auto cursor-pointer"
+                >
+                    <RotateCcw size={14} /> Refresh Directory
+                </button>
+            </div>
+
+            {/* Quick Instant Reset Tool */}
+            <div className="bg-slate-900 text-white p-7 rounded-[2rem] shadow-xl border border-slate-800 space-y-5">
+                <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
+                        ⚡
+                    </div>
+                    <div>
+                        <h3 className="text-base font-bold text-white">Instant Account Reset</h3>
+                        <p className="text-xs text-slate-400">Quickly change the password of any user by username</p>
+                    </div>
+                </div>
+
+                <form 
+                    onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!quickUser.trim() || !quickPass.trim()) return;
+                        setQuickSubmitting(true);
+                        const ok = await handleExecuteReset(quickUser, quickPass, quickLicense || undefined);
+                        if (ok) {
+                            setQuickPass("");
+                        }
+                        setQuickSubmitting(false);
+                    }}
+                    className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
+                >
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Username</label>
+                        <input 
+                            value={quickUser}
+                            onChange={(e) => setQuickUser(e.target.value)}
+                            placeholder="e.g. alibiiri"
+                            className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl outline-none text-white text-sm focus:border-blue-500 transition-colors font-medium"
+                            required
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">New Password</label>
+                            <button
+                                type="button"
+                                onClick={() => setQuickPass(generateSecurePassword(quickUser || "User"))}
+                                className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-bold cursor-pointer"
+                                title="Auto-generate password"
+                            >
+                                <Sparkles size={11} /> Generate
+                            </button>
+                        </div>
+                        <div className="relative">
+                            <input 
+                                type={quickShowPass ? "text" : "password"}
+                                value={quickPass}
+                                onChange={(e) => setQuickPass(e.target.value)}
+                                placeholder="New password"
+                                className="w-full p-3 pr-10 bg-slate-800 border border-slate-700 rounded-xl outline-none text-white text-sm focus:border-blue-500 transition-colors font-mono"
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setQuickShowPass(!quickShowPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                            >
+                                {quickShowPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tenant (Optional)</label>
+                        <select 
+                            value={quickLicense}
+                            onChange={(e) => setQuickLicense(e.target.value)}
+                            className="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl outline-none text-white text-sm focus:border-blue-500 transition-colors cursor-pointer"
+                        >
+                            <option value="">Auto-Detect Across All Tenants</option>
+                            {tenants.map(t => (
+                                <option key={t.licenseKey} value={t.licenseKey}>
+                                    {t.businessName} ({t.licenseKey.slice(0, 18)}...)
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <button 
+                        type="submit"
+                        disabled={quickSubmitting}
+                        className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg shadow-blue-500/20"
+                    >
+                        {quickSubmitting ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                Updating...
+                            </>
+                        ) : (
+                            <>
+                                <KeyRound size={16} />
+                                Reset Password Now
+                            </>
+                        )}
+                    </button>
+                </form>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between">
+                <div className="relative w-full md:w-80">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search business, username, or key..."
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-medium outline-none focus:border-blue-500 focus:bg-white transition-all text-slate-700"
+                    />
+                </div>
+
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                    <span className="text-xs text-slate-400 font-bold whitespace-nowrap">Filter Instance:</span>
+                    <select 
+                        value={filterKey}
+                        onChange={(e) => setFilterKey(e.target.value)}
+                        className="p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold outline-none text-slate-700 focus:border-blue-500 cursor-pointer"
+                    >
+                        <option value="">All Instances ({tenants.length})</option>
+                        {tenants.map(t => (
+                            <option key={t.licenseKey} value={t.licenseKey}>
+                                {t.businessName}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            {/* Directory of Customer Tenants & Users */}
+            {loading ? (
+                <div className="bg-white rounded-3xl p-16 border border-slate-100 text-center text-slate-400 space-y-3">
+                    <div className="w-8 h-8 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                    <p className="text-xs font-bold uppercase tracking-wider">Scanning Tenant User Directories...</p>
+                </div>
+            ) : filteredTenants.length === 0 ? (
+                <div className="bg-white rounded-3xl p-12 border border-slate-100 text-center text-slate-400 space-y-2">
+                    <p className="font-bold text-slate-600">No matching accounts found</p>
+                    <p className="text-xs">Try clearing your search query or selecting "All Instances".</p>
+                </div>
+            ) : (
+                <div className="space-y-6">
+                    {filteredTenants.map(tenant => (
+                        <div key={tenant.licenseKey} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
+                            {/* Tenant Header */}
+                            <div className="p-6 bg-slate-50/70 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-base font-bold text-slate-900">{tenant.businessName}</h3>
+                                        <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black uppercase">
+                                            {tenant.users.length} {tenant.users.length === 1 ? 'account' : 'accounts'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="font-mono text-[11px] text-slate-500 select-all">{tenant.licenseKey}</span>
+                                        <button 
+                                            onClick={() => copyToClipboard(tenant.licenseKey)} 
+                                            className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+                                            title="Copy License Key"
+                                        >
+                                            <Copy size={12} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                        onClick={() => {
+                                            setQuickLicense(tenant.licenseKey);
+                                            const firstAdmin = tenant.users.find(u => u.role === "admin") || tenant.users[0];
+                                            if (firstAdmin) {
+                                                setQuickUser(firstAdmin.username);
+                                                setQuickPass(generateSecurePassword(firstAdmin.username));
+                                            }
+                                        }}
+                                        className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                    >
+                                        <Sparkles size={13} className="text-amber-500" />
+                                        Populate Quick Reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Users Table */}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm border-collapse">
+                                    <thead className="bg-white border-b border-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+                                        <tr>
+                                            <th className="p-4 pl-6">User</th>
+                                            <th className="p-4">Username</th>
+                                            <th className="p-4 text-center">Role</th>
+                                            <th className="p-4 text-right pr-6">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {tenant.users.map(u => (
+                                            <tr key={u.username} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="p-4 pl-6">
+                                                    <div className="font-bold text-slate-800">{u.fullName || u.username}</div>
+                                                </td>
+                                                <td className="p-4 font-mono text-xs text-slate-600 font-semibold">
+                                                    @{u.username}
+                                                </td>
+                                                <td className="p-4 text-center">
+                                                    <span className={cn(
+                                                        "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                                                        u.role === "admin" ? "bg-red-50 text-red-600 border border-red-100" :
+                                                        u.role === "manager" ? "bg-blue-50 text-blue-600 border border-blue-100" :
+                                                        "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                                    )}>
+                                                        {u.role}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-right pr-6">
+                                                    <button
+                                                        onClick={() => {
+                                                            setModalUser({
+                                                                username: u.username,
+                                                                fullName: u.fullName || u.username,
+                                                                role: u.role,
+                                                                licenseKey: tenant.licenseKey,
+                                                                businessName: tenant.businessName
+                                                            });
+                                                            setModalPass(generateSecurePassword(u.username));
+                                                        }}
+                                                        className="bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 ml-auto cursor-pointer shadow-2xs"
+                                                    >
+                                                        <KeyRound size={13} />
+                                                        Reset Password
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Individual User Password Reset Modal */}
+            <AnimatePresence>
+                {modalUser && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white rounded-[2.5rem] p-8 max-w-md w-full border border-slate-100 shadow-2xl space-y-6"
+                        >
+                            <div className="text-center space-y-2">
+                                <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-inner">
+                                    <KeyRound size={28} />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800">Reset Account Password</h3>
+                                <p className="text-xs text-slate-500">
+                                    Setting a new password for <strong className="text-slate-800">@{modalUser.username}</strong> at <span className="text-blue-600 font-semibold">{modalUser.businessName}</span>.
+                                </p>
+                            </div>
+
+                            <form 
+                                onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    if (!modalPass.trim()) return;
+                                    setModalSubmitting(true);
+                                    const ok = await handleExecuteReset(modalUser.username, modalPass, modalUser.licenseKey);
+                                    setModalSubmitting(false);
+                                    if (ok) {
+                                        setModalUser(null);
+                                    }
+                                }}
+                                className="space-y-4"
+                            >
+                                <div className="space-y-1.5">
+                                    <div className="flex justify-between items-center px-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">New Password</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalPass(generateSecurePassword(modalUser.username))}
+                                            className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer"
+                                        >
+                                            <Sparkles size={12} /> Auto-Generate
+                                        </button>
+                                    </div>
+                                    <div className="relative">
+                                        <input 
+                                            type={modalShowPass ? "text" : "password"}
+                                            value={modalPass}
+                                            onChange={(e) => setModalPass(e.target.value)}
+                                            placeholder="Enter new password"
+                                            className="w-full p-3.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-sm text-slate-800 focus:border-blue-500 transition-colors"
+                                            required
+                                            autoFocus
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalShowPass(!modalShowPass)}
+                                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                        >
+                                            {modalShowPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setModalUser(null)}
+                                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-bold text-sm transition-all cursor-pointer"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={modalSubmitting}
+                                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-2xl font-bold text-sm transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                    >
+                                        {modalSubmitting ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Saving...
+                                            </>
+                                        ) : (
+                                            "Confirm Reset"
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Custom Toast Notification with 1-click Copy Credentials */}
+            <AnimatePresence>
+                {notification && (
+                    <div className="fixed bottom-6 right-6 z-50 max-w-md">
+                        <motion.div
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: 20, opacity: 0 }}
+                            className={cn(
+                                "p-5 rounded-2xl shadow-2xl border font-medium text-sm space-y-2",
+                                notification.type === "success" 
+                                    ? "text-emerald-950 border-emerald-200 bg-emerald-50" 
+                                    : "text-red-950 border-red-200 bg-red-50"
+                            )}
+                        >
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 font-bold">
+                                    <div className={cn(
+                                        "w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white",
+                                        notification.type === "success" ? "bg-emerald-600" : "bg-red-600"
+                                    )}>
+                                        {notification.type === "success" ? "✓" : "✗"}
+                                    </div>
+                                    <span>{notification.message}</span>
+                                </div>
+                                <button 
+                                    onClick={() => setNotification(null)}
+                                    className="text-slate-400 hover:text-slate-700 font-bold focus:outline-none cursor-pointer"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {notification.credentials && (
+                                <div className="bg-white/80 p-3 rounded-xl border border-emerald-200/60 text-xs font-mono space-y-1 mt-2">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-slate-500">Username: <strong className="text-slate-800">@{notification.credentials.username}</strong></span>
+                                        <button
+                                            onClick={() => copyToClipboard(`Username: ${notification.credentials!.username}\nPassword: ${notification.credentials!.pass}`)}
+                                            className="text-emerald-700 hover:text-emerald-900 font-bold text-[11px] flex items-center gap-1 cursor-pointer bg-emerald-100/60 px-2 py-0.5 rounded"
+                                        >
+                                            <Copy size={11} /> Copy Credentials
+                                        </button>
+                                    </div>
+                                    <div className="text-slate-500">
+                                        Password: <strong className="text-slate-800 select-all">{notification.credentials.pass}</strong>
+                                    </div>
+                                </div>
+                            )}
                         </motion.div>
                     </div>
                 )}

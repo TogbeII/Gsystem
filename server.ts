@@ -1622,6 +1622,461 @@ app.delete("/api/central/registrations/:licenseKey", async (req, res) => {
   }
 });
 
+// ==========================================
+// Password Reset & Account Recovery Systems
+// ==========================================
+
+// 1. Genesys Owner: List all tenant users across all customer instances
+app.get("/api/owner/tenant-users", async (req, res) => {
+  const requestingUser = (req.headers["x-user"] || "").toString().toLowerCase().trim();
+  if (requestingUser !== "genesys_owner") {
+    return res.status(403).json({ error: "Unauthorized: Genesys Owner access required" });
+  }
+
+  try {
+    const tenantsMap = new Map<string, {
+      licenseKey: string;
+      businessName: string;
+      users: Array<{ username: string; fullName: string; role: string; permissions?: any }>;
+    }>();
+
+    // 1. Get all registered customer profiles
+    const local = loadLocalDb();
+    const registeredCustomers: any[] = [];
+    if (useFirestore && db) {
+      try {
+        const snap = await db.collection("registered_customers").get();
+        snap.forEach(d => registeredCustomers.push(d.data()));
+      } catch (e) {}
+    }
+    if (Array.isArray(local.registered_customers)) {
+      for (const reg of local.registered_customers) {
+        if (!registeredCustomers.some(r => r.licenseKey === reg.licenseKey)) {
+          registeredCustomers.push(reg);
+        }
+      }
+    }
+
+    const getOrCreateTenant = (licenseKey: string, bName?: string) => {
+      if (!tenantsMap.has(licenseKey)) {
+        let businessName = bName || "";
+        if (!businessName) {
+          const matchReg = registeredCustomers.find(r => r.licenseKey === licenseKey);
+          businessName = matchReg?.businessName || (licenseKey === "DEFAULT" ? "System Default" : "Customer Instance");
+        }
+        tenantsMap.set(licenseKey, {
+          licenseKey,
+          businessName,
+          users: []
+        });
+      }
+      return tenantsMap.get(licenseKey)!;
+    };
+
+    // 2. Scan Firestore tenant user collections
+    if (useFirestore && db) {
+      try {
+        const collections = await db.listCollections();
+        for (const col of collections) {
+          const match = col.id.match(/^tenant_(.*)_users$/);
+          if (match && match[1] !== "owner") {
+            const safeKey = match[1];
+            const parts = safeKey.split("_");
+            let licenseKey = safeKey;
+            if (parts.length === 4 && parts[0] === "GENESYS") {
+              licenseKey = parts.join("-");
+            }
+            const tenantObj = getOrCreateTenant(licenseKey);
+            const userDocs = await col.get();
+            userDocs.forEach(d => {
+              const u = d.data();
+              const uname = u.username || d.id;
+              if (uname && !tenantObj.users.some(existing => existing.username.toLowerCase() === uname.toLowerCase())) {
+                tenantObj.users.push({
+                  username: uname,
+                  fullName: u.fullName || uname,
+                  role: u.role || "user",
+                  permissions: u.permissions
+                });
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Error reading Firestore tenant users:", e);
+      }
+    }
+
+    // 3. Scan localDb tenant user collections
+    for (const key of Object.keys(local)) {
+      const match = key.match(/^tenant_(.*)_users$/);
+      if (match && match[1] !== "owner") {
+        const safeKey = match[1];
+        const parts = safeKey.split("_");
+        let licenseKey = safeKey;
+        if (parts.length === 4 && parts[0] === "GENESYS") {
+          licenseKey = parts.join("-");
+        }
+        const tenantObj = getOrCreateTenant(licenseKey);
+        const uList = local[key] || [];
+        for (const u of uList) {
+          const uname = u.username;
+          if (uname && !tenantObj.users.some(existing => existing.username.toLowerCase() === uname.toLowerCase())) {
+            tenantObj.users.push({
+              username: uname,
+              fullName: u.fullName || uname,
+              role: u.role || "user",
+              permissions: u.permissions
+            });
+          }
+        }
+      }
+    }
+
+    // 4. Include root users in a System / Root group
+    const rootTenant = getOrCreateTenant("SYSTEM_ROOT", "System Administrator & Direct Accounts");
+    if (useFirestore && db) {
+      try {
+        const rootSnap = await db.collection("users").get();
+        rootSnap.forEach(d => {
+          const u = d.data();
+          const uname = u.username || d.id;
+          if (uname && !rootTenant.users.some(existing => existing.username.toLowerCase() === uname.toLowerCase())) {
+            rootTenant.users.push({
+              username: uname,
+              fullName: u.fullName || uname,
+              role: u.role || "user",
+              permissions: u.permissions
+            });
+          }
+        });
+      } catch (e) {}
+    }
+    if (Array.isArray(local.users)) {
+      for (const u of local.users) {
+        const uname = u.username;
+        if (uname && !rootTenant.users.some(existing => existing.username.toLowerCase() === uname.toLowerCase())) {
+          rootTenant.users.push({
+            username: uname,
+            fullName: u.fullName || uname,
+            role: u.role || "user",
+            permissions: u.permissions
+          });
+        }
+      }
+    }
+
+    // Attach proper business names from registered customers if missing
+    for (const [key, t] of tenantsMap.entries()) {
+      const reg = registeredCustomers.find(r => r.licenseKey === key);
+      if (reg && reg.businessName) {
+        t.businessName = reg.businessName;
+      }
+    }
+
+    const result = Array.from(tenantsMap.values()).filter(t => t.users.length > 0 || t.licenseKey !== "SYSTEM_ROOT");
+    res.json(result);
+  } catch (err: any) {
+    console.error("Error in /api/owner/tenant-users:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Genesys Owner: Reset password for any account
+app.post("/api/owner/reset-password", async (req, res) => {
+  const requestingUser = (req.headers["x-user"] || "").toString().toLowerCase().trim();
+  if (requestingUser !== "genesys_owner") {
+    return res.status(403).json({ error: "Unauthorized: Genesys Owner access required" });
+  }
+
+  const { username, newPassword, licenseKey } = req.body;
+  if (!username || !newPassword) {
+    return res.status(400).json({ error: "Username and new password are required" });
+  }
+  if (newPassword.trim().length < 4) {
+    return res.status(400).json({ error: "New password must be at least 4 characters" });
+  }
+
+  const cleanUser = username.trim();
+  const lowerUser = cleanUser.toLowerCase();
+  const hashedPassword = hashPassword(newPassword.trim());
+
+  let updatedCount = 0;
+
+  // Identify targets
+  const targetSafeKeys: string[] = [];
+  if (licenseKey && licenseKey !== "SYSTEM_ROOT") {
+    targetSafeKeys.push(licenseKey.replace(/[^a-zA-Z0-9]/g, "_"));
+  }
+
+  // Scan all tenant collections containing this user
+  const local = loadLocalDb();
+  for (const key of Object.keys(local)) {
+    if (key.startsWith("tenant_") && key.endsWith("_users")) {
+      const arr = local[key] || [];
+      if (arr.some((u: any) => (u.username || "").toLowerCase() === lowerUser)) {
+        const sk = key.replace(/^tenant_/, "").replace(/_users$/, "");
+        if (!targetSafeKeys.includes(sk)) targetSafeKeys.push(sk);
+      }
+    }
+  }
+
+  if (useFirestore && db) {
+    try {
+      const collections = await db.listCollections();
+      for (const col of collections) {
+        if (col.id.startsWith("tenant_") && col.id.endsWith("_users")) {
+          const docRef = col.doc(cleanUser);
+          const docSnap = await docRef.get();
+          if (docSnap.exists) {
+            const sk = col.id.replace(/^tenant_/, "").replace(/_users$/, "");
+            if (!targetSafeKeys.includes(sk)) targetSafeKeys.push(sk);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Update in Firestore
+  if (useFirestore && db) {
+    for (const safeKey of targetSafeKeys) {
+      try {
+        const col = db.collection(`tenant_${safeKey}_users`);
+        const docRef = col.doc(cleanUser);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          await docRef.update({ password: hashedPassword });
+          updatedCount++;
+        } else {
+          const snap = await col.get();
+          for (const d of snap.docs) {
+            if ((d.data().username || d.id).toLowerCase() === lowerUser) {
+              await d.ref.update({ password: hashedPassword });
+              updatedCount++;
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`Error updating password in tenant_${safeKey}_users:`, e);
+      }
+    }
+
+    // Also update in root users collection if present
+    try {
+      const rootDoc = await db.collection("users").doc(cleanUser).get();
+      if (rootDoc.exists) {
+        await rootDoc.ref.update({ password: hashedPassword });
+        updatedCount++;
+      } else {
+        const snap = await db.collection("users").get();
+        for (const d of snap.docs) {
+          if ((d.data().username || d.id).toLowerCase() === lowerUser) {
+            await d.ref.update({ password: hashedPassword });
+            updatedCount++;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Update in localDb
+  let localUpdated = false;
+  for (const safeKey of targetSafeKeys) {
+    const k = `tenant_${safeKey}_users`;
+    if (Array.isArray(local[k])) {
+      for (const u of local[k]) {
+        if ((u.username || "").toLowerCase() === lowerUser) {
+          u.password = hashedPassword;
+          localUpdated = true;
+          updatedCount++;
+        }
+      }
+    }
+  }
+  if (Array.isArray(local.users)) {
+    for (const u of local.users) {
+      if ((u.username || "").toLowerCase() === lowerUser) {
+        u.password = hashedPassword;
+        localUpdated = true;
+        updatedCount++;
+      }
+    }
+  }
+  if (localUpdated) {
+    saveLocalDb();
+  }
+
+  userLicenseCache.delete(lowerUser);
+
+  if (updatedCount === 0) {
+    // If user record wasn't found, ensure we set it in the target tenant or root users
+    if (targetSafeKeys.length > 0) {
+      const safeKey = targetSafeKeys[0];
+      const targetCol = `tenant_${safeKey}_users`;
+      if (useFirestore && db) {
+        await db.collection(targetCol).doc(cleanUser).set({
+          username: cleanUser,
+          password: hashedPassword,
+          role: "admin",
+          fullName: cleanUser,
+          tenantLicenseKey: safeKey.replace(/_/g, "-"),
+          permissions: DEFAULT_PERMISSIONS.admin
+        }, { merge: true }).catch(() => {});
+      }
+      const loc = loadLocalDb();
+      if (!Array.isArray(loc[targetCol])) loc[targetCol] = [];
+      const idx = loc[targetCol].findIndex((u: any) => (u.username || "").toLowerCase() === lowerUser);
+      if (idx >= 0) {
+        loc[targetCol][idx].password = hashedPassword;
+      } else {
+        loc[targetCol].push({
+          username: cleanUser,
+          password: hashedPassword,
+          role: "admin",
+          fullName: cleanUser,
+          tenantLicenseKey: safeKey.replace(/_/g, "-"),
+          permissions: DEFAULT_PERMISSIONS.admin
+        });
+      }
+      saveLocalDb();
+    } else {
+      await setDocumentData("users", cleanUser, {
+        username: cleanUser,
+        password: hashedPassword,
+        role: "admin",
+        fullName: cleanUser,
+        permissions: DEFAULT_PERMISSIONS.admin
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Password for "${cleanUser}" has been successfully reset.`
+  });
+});
+
+// 3. Public Self-Service: Reset password via License Key from Login screen
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { username, licenseKey, newPassword } = req.body;
+  if (!username || !licenseKey || !newPassword) {
+    return res.status(400).json({ error: "Username, License Key, and New Password are required." });
+  }
+
+  const cleanUser = username.trim();
+  const lowerUser = cleanUser.toLowerCase();
+  const cleanKey = licenseKey.trim().toUpperCase();
+  const cleanPass = newPassword.trim();
+
+  if (cleanPass.length < 4) {
+    return res.status(400).json({ error: "Password must be at least 4 characters long." });
+  }
+
+  // Check master emergency recovery code or match user license
+  const isMasterRecovery = (cleanKey === "GENESYS-OWNER-RECOVERY-2026" || cleanKey === "GENESYS-RECOVERY-2026");
+  let verified = isMasterRecovery;
+  let matchingLicenseKey = isMasterRecovery ? "" : cleanKey;
+
+  if (!verified) {
+    // Resolve user's actual license key
+    try {
+      const foundKey = await getLicenseKeyForUser(cleanUser);
+      if (foundKey && foundKey.toUpperCase() === cleanKey) {
+        verified = true;
+        matchingLicenseKey = foundKey;
+      }
+    } catch (e) {}
+
+    // Check localDb tenant user collections
+    if (!verified) {
+      const local = loadLocalDb();
+      const safeKey = cleanKey.replace(/[^a-zA-Z0-9]/g, "_");
+      const tenantUsers = local[`tenant_${safeKey}_users`] || [];
+      if (tenantUsers.some((u: any) => (u.username || "").toLowerCase() === lowerUser)) {
+        verified = true;
+        matchingLicenseKey = cleanKey;
+      }
+    }
+
+    // Check root users matching active system license
+    if (!verified) {
+      const local = loadLocalDb();
+      const rootUser = (local.users || []).find((u: any) => (u.username || "").toLowerCase() === lowerUser);
+      if (rootUser && rootUser.tenantLicenseKey && rootUser.tenantLicenseKey.toUpperCase() === cleanKey) {
+        verified = true;
+        matchingLicenseKey = rootUser.tenantLicenseKey;
+      }
+    }
+  }
+
+  if (!verified) {
+    return res.status(400).json({ 
+      error: "Verification failed: The provided License Key does not match the account for this username. Please check your License Key certificate or contact your Genesys System Administrator." 
+    });
+  }
+
+  const hashedPassword = hashPassword(cleanPass);
+  const safeKey = matchingLicenseKey.replace(/[^a-zA-Z0-9]/g, "_");
+
+  // Update in Firestore
+  if (useFirestore && db) {
+    if (safeKey) {
+      try {
+        const docRef = db.collection(`tenant_${safeKey}_users`).doc(cleanUser);
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          await docRef.update({ password: hashedPassword });
+        } else {
+          const snap = await db.collection(`tenant_${safeKey}_users`).get();
+          for (const d of snap.docs) {
+            if ((d.data().username || d.id).toLowerCase() === lowerUser) {
+              await d.ref.update({ password: hashedPassword });
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Also update root doc if exists
+    try {
+      const rootDoc = await db.collection("users").doc(cleanUser).get();
+      if (rootDoc.exists) {
+        await rootDoc.ref.update({ password: hashedPassword });
+      }
+    } catch (e) {}
+  }
+
+  // Update in localDb
+  const local = loadLocalDb();
+  let localUpdated = false;
+  if (safeKey && Array.isArray(local[`tenant_${safeKey}_users`])) {
+    for (const u of local[`tenant_${safeKey}_users`]) {
+      if ((u.username || "").toLowerCase() === lowerUser) {
+        u.password = hashedPassword;
+        localUpdated = true;
+      }
+    }
+  }
+  if (Array.isArray(local.users)) {
+    for (const u of local.users) {
+      if ((u.username || "").toLowerCase() === lowerUser) {
+        u.password = hashedPassword;
+        localUpdated = true;
+      }
+    }
+  }
+  if (localUpdated) {
+    saveLocalDb();
+  }
+
+  userLicenseCache.delete(lowerUser);
+
+  res.json({
+    success: true,
+    message: `Password for "${cleanUser}" has been successfully reset! You can now log in with your new password.`
+  });
+});
+
 // Auth
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
